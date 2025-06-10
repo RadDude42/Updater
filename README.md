@@ -2,6 +2,8 @@
 
 A Python application with a graphical user interface (GUI) to manage scripts from GitHub repositories.
 
+Compiled program is in DIST folder
+
 ## Features
 
 - Add scripts by providing a GitHub repository URL and a specific folder path.
