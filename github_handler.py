@@ -8,7 +8,7 @@ from io import BytesIO
 # Note: For private repositories, authentication (e.g., a token) would be needed.
 # For public repositories, the GitHub API has rate limits for unauthenticated requests.
 
-def get_repo_archive_link(repo_url, branch='Main'):
+def get_repo_archive_link(repo_url, branch='main'):
     """Generates the archive link for a GitHub repository."""
     # Example repo_url: https://github.com/user/repository
     parts = repo_url.strip('/').split('/')
@@ -18,7 +18,7 @@ def get_repo_archive_link(repo_url, branch='Main'):
     repo_name = parts[4]
     return f"https://api.github.com/repos/{user}/{repo_name}/zipball/{branch}"
 
-def download_folder_from_github(repo_url, folder_path, local_save_path, branch='Main'):
+def download_folder_from_github(repo_url, folder_path, local_save_path, branch=None):
     """Downloads a specific folder from a GitHub repository.
 
     Args:
@@ -31,7 +31,23 @@ def download_folder_from_github(repo_url, folder_path, local_save_path, branch='
         tuple: (bool, str, str) indicating (success_status, message, final_script_path).
     """
     try:
-        api_url = get_repo_archive_link(repo_url, branch)
+        parsed_branch_from_url = None
+        if "/tree/" in repo_url:
+            parts = repo_url.split('/tree/')
+            repo_url_base = parts[0]
+            branch_and_maybe_path = parts[1].split('/')
+            parsed_branch_from_url = branch_and_maybe_path[0]
+            # Update repo_url to base for further processing if it contained /tree/
+            # This ensures functions like get_repo_archive_link get a clean base URL
+            # repo_url = repo_url_base # Be careful if repo_url is used later for other things
+            print(f"[DEBUG] Parsed branch '{parsed_branch_from_url}' from URL: {repo_url}")
+        
+        effective_branch = parsed_branch_from_url if parsed_branch_from_url else (branch if branch else 'main')
+        print(f"[DEBUG] Effective branch for download: {effective_branch}")
+
+        # Use repo_url_base if /tree/ was present, otherwise original repo_url for API link
+        api_url_base = repo_url.split('/tree/')[0] if "/tree/" in repo_url else repo_url
+        api_url = get_repo_archive_link(api_url_base, effective_branch)
         
         # Step 1: Get the redirect URL from the GitHub API
         api_headers = {
@@ -249,15 +265,26 @@ def download_folder_from_github(repo_url, folder_path, local_save_path, branch='
     except Exception as e:
         return False, f"An unexpected error occurred: {e}", local_save_path
 
-def get_latest_commit_sha(repo_url, branch='Main'):
+def get_latest_commit_sha(repo_url, branch=None):
     """Fetches the SHA of the latest commit on a given branch of a GitHub repository."""
     parts = repo_url.strip('/').split('/')
     if len(parts) < 5 or parts[2] != 'github.com':
         raise ValueError("Invalid GitHub repository URL format.")
     user = parts[3]
-    repo_name = parts[4]
+    repo_name = parts[4].split('/tree/')[0] # Ensure repo_name is clean if URL had /tree/
     
-    api_url = f"https://api.github.com/repos/{user}/{repo_name}/commits/{branch}"
+    parsed_branch_from_url = None
+    if "/tree/" in repo_url:
+        url_parts_for_branch = repo_url.split('/tree/')
+        if len(url_parts_for_branch) > 1:
+            branch_parts = url_parts_for_branch[1].split('/')
+            parsed_branch_from_url = branch_parts[0]
+            print(f"[DEBUG] Parsed branch '{parsed_branch_from_url}' from URL for SHA: {repo_url}")
+
+    effective_branch = parsed_branch_from_url if parsed_branch_from_url else (branch if branch else 'main')
+    print(f"[DEBUG] Effective branch for SHA: {effective_branch}")
+
+    api_url = f"https://api.github.com/repos/{user}/{repo_name}/commits/{effective_branch}"
     try:
         response = requests.get(api_url)
         response.raise_for_status()

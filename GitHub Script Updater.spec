@@ -5,7 +5,7 @@ a = Analysis(
     ['script_updater_app.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('community_scripts.json', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

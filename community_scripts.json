@@ -1,0 +1,62 @@
+[
+  {
+    "category": "Activities",
+    "displayText": "EmptyZero: S Helltide - Chests + Maiden Farming",
+    "repo_url": "https://github.com/SEmptyZero/SHelltide/tree/main",
+    "name_override": "SHelltide"
+  },
+  {
+    "category": "Activities",
+    "displayText": "ElectroLuz: Helltides Chests + Maiden Farmer",
+    "repo_url": "https://github.com/icemancsa/HelltideChests_MaidenFarmerV2.0",
+    "name_override": "Helltides"
+  },
+  {
+    "category": "Activities",
+    "displayText": "Piteer: Does pits real good",
+    "repo_url": "https://github.com/Zewx1776/piteertest/tree/Main",
+    "name_override": "Piteer"
+  },
+  {
+    "category": "Activities",
+    "displayText": "HordesDev: Does Infernal Hordes real good",
+    "repo_url": "https://github.com/Letrico/HordeDev",
+    "name_override": "HordeDev"
+  },
+  {
+    "category": "Activities",
+    "displayText": "Undercity: Does Kurast Undercity real good",
+    "repo_url": "https://github.com/TesXter/Undercity/tree/master",
+    "name_override": "Undercity"
+  },
+  {
+    "category": "Activities",
+    "displayText": "BossTosser: Tosses bosses real good",
+    "repo_url": "https://github.com/Zewx1776/BossTosser",
+    "name_override": "BossTosser"
+  },
+  {
+    "category": "Class Rotations",
+    "displayText": "Sorcerer: Salad Sorc",
+    "repo_url": "https://github.com/RadDude42/Sorc_Rota_salad",
+    "name_override": "SaladSorc"
+  },
+  {
+    "category": "Class Rotations",
+    "displayText": "Rogue: DT Smoke Enhanced",
+    "repo_url": "https://github.com/Sm0oked/Rogue-DT-Smoke",
+    "name_override": "DTSmokeEnhanced"
+  },
+  {
+    "category": "Utilities",
+    "displayText": "Alfred: Your personal butler in Cerrigar",
+    "repo_url": "https://github.com/Leoc76101111/AlfredTheButler",
+    "name_override": "Alfred"
+  },
+  {
+    "category": "Utilities",
+    "displayText": "LooteerV2: Picks up stuff real good",
+    "repo_url": "https://github.com/Letrico/LooteerV2",
+    "name_override": "LooteerV2"
+  }
+]

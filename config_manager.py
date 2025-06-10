@@ -1,8 +1,20 @@
 import json
 import os
+import sys
 
-CONFIG_FILE = 'managed_scripts.json'
-SETTINGS_FILE = 'app_settings.json'
+# Determine base path for config files
+if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    # Running as a PyInstaller bundle (e.g., one-file exe)
+    # sys.executable is the path to the .exe
+    application_path = os.path.dirname(sys.executable)
+else:
+    # Running as a normal Python script
+    # os.path.abspath(__file__) is the absolute path to this script (config_manager.py)
+    # os.path.dirname() gets the directory containing this script.
+    application_path = os.path.dirname(os.path.abspath(__file__))
+
+CONFIG_FILE = os.path.join(application_path, 'managed_scripts.json')
+SETTINGS_FILE = os.path.join(application_path, 'app_settings.json')
 
 def load_scripts_config():
     """Loads the managed scripts configuration from the JSON file."""
