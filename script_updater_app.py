@@ -469,37 +469,44 @@ class ScriptUpdaterApp(ctk.CTk):
         item_frame = ctk.CTkFrame(parent_container)
         item_frame.pack(fill="x", pady=2, padx=2)
 
+        # Configure grid columns for item_frame
+        item_frame.columnconfigure(0, weight=0)  # Checkbox column
+        item_frame.columnconfigure(1, weight=1)  # Text content column
+
         display_text = script_info.get("displayText", "Unnamed Script")
         repo_url = script_info.get('repo_url')
-        folder_path = script_info.get('folder_path')
+        folder_path = script_info.get('folder_path') # Kept for context, used in _is_script_managed
         is_managed = self._is_script_managed(repo_url, folder_path)
 
-        current_display_text = display_text
+        current_display_text_for_label = display_text
         checkbox_state = "normal"
-        # The shared_checkbox_var's value should already be set correctly based on is_managed
-        # when it was first created or retrieved in populate_community_script_tabs.
 
         if is_managed:
-            current_display_text += " (Added)"
+            current_display_text_for_label += " (Added)"
             checkbox_state = "disabled"
-            # shared_checkbox_var.set(1) # This should be handled before calling this helper
 
         checkbox = ctk.CTkCheckBox(
             item_frame, 
-            text=current_display_text, 
+            text="",  # Text will be handled by a separate label for better layout control
             variable=shared_checkbox_var, 
             onvalue=1, 
             offvalue=0, 
             command=self.on_community_checkbox_toggle, 
             state=checkbox_state
         )
-        checkbox.pack(side="left", padx=5, pady=2)
-        
-        # Store a reference to this specific checkbox widget if needed for targeted updates,
-        # though shared_checkbox_var is the primary state holder.
-        # script_info[f'_widget_ref_{parent_container.winfo_name()}'] = checkbox 
-        # This might be overly complex; direct updates via add_community_script might be better.
+        # Checkbox spans two rows to align with display text and author text
+        checkbox.grid(row=0, column=0, rowspan=2, padx=(5,0), pady=2, sticky="w")
 
+        label_display_text = ctk.CTkLabel(item_frame, text=current_display_text_for_label, anchor="w")
+        label_display_text.grid(row=0, column=1, padx=(2,5), pady=(2,0), sticky="ew")
+        
+        author_name = self._get_author_from_url(repo_url)
+        if not author_name: # Fallback if author can't be parsed
+            author_name = "N/A"
+        
+        label_author = ctk.CTkLabel(item_frame, text=f"Author: {author_name}", anchor="w", font=ctk.CTkFont(size=10))
+        label_author.grid(row=1, column=1, padx=(2,5), pady=(0,2), sticky="ew")
+        
         return item_frame
 
     def refresh_scripts_display(self):
@@ -802,12 +809,22 @@ class ScriptUpdaterApp(ctk.CTk):
         if not self.community_scripts_data:
             # Display message in 'All' tab if no scripts at all
             if "All" in self.tab_frames:
-                ctk.CTkLabel(self.tab_frames["All"], text="No community scripts available.").pack(pady=10)
+                all_frame = self.tab_frames["All"]
+                if all_frame: # Ensure frame exists
+                    ctk.CTkLabel(all_frame, text="No community scripts available.").pack(pady=10)
             # Display message in other category tabs
             for category, frame in self.tab_frames.items():
-                if category != "All":
-                    ctk.CTkLabel(frame, text=f"No community scripts found for {category}.").pack(pady=10)
+                if category != "All": # Check if frame exists before trying to pack into it
+                    if frame: # Ensure frame is not None
+                        ctk.CTkLabel(frame, text=f"No community scripts found for {category}.").pack(pady=10)
             return
+
+        # Sort community scripts alphabetically by displayText
+        try:
+            self.community_scripts_data.sort(key=lambda x: x.get('displayText', '').lower())
+        except Exception as e:
+            print(f"[Error] Could not sort community scripts: {e}")
+            # Optionally, inform the user via status bar or messagebox if sorting fails catastrophically
 
         scripts_added_to_category_tabs = {cat: False for cat in self.community_script_categories if cat != "All"}
 
@@ -826,7 +843,7 @@ class ScriptUpdaterApp(ctk.CTk):
             else:
                 shared_checkbox_var = self.community_script_checkbox_vars[script_key]
                 # Ensure its state reflects current managed status, in case it changed without a full refresh
-                if shared_checkbox_var.get() != initial_checkbox_value and is_managed:
+                if shared_checkbox_var.get() != initial_checkbox_value:
                      shared_checkbox_var.set(initial_checkbox_value) 
 
             # Create entry in 'All' tab
@@ -836,8 +853,8 @@ class ScriptUpdaterApp(ctk.CTk):
                 # Store widget info for 'All' tab
                 self.community_script_widgets_by_tab["All"].append({
                     'script_data': script_info,
-                    'frame': entry_frame_all, # The frame returned by _create_community_script_entry_ui
-                    'checkbox_var': shared_checkbox_var # The shared IntVar
+                    'frame': entry_frame_all, 
+                    'checkbox_var': shared_checkbox_var
                 })
 
             # Create entry in specific category tab
@@ -852,14 +869,14 @@ class ScriptUpdaterApp(ctk.CTk):
                     'frame': entry_frame_cat,
                     'checkbox_var': shared_checkbox_var
                 })
-            elif category != "All":
+            elif category != "All": # Only print warning if it's not 'All' and tab doesn't exist
                 print(f"[Warning] Community script '{script_info.get('displayText')}' has unknown category '{category}'. Not adding to a specific category tab.")
 
         # For any category tab (not 'All') that didn't get any scripts, add a placeholder label
         for category, was_populated in scripts_added_to_category_tabs.items():
             if not was_populated:
                 parent_frame = self.tab_frames.get(category)
-                if parent_frame:
+                if parent_frame: # Ensure frame exists
                     ctk.CTkLabel(parent_frame, text=f"No community scripts found for {category}.").pack(pady=10)
 
         self.on_community_checkbox_toggle() # Update button states after populating

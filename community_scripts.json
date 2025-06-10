@@ -1,13 +1,13 @@
 [
   {
     "category": "Activities",
-    "displayText": "EmptyZero: S Helltide - Chests + Maiden Farming",
+    "displayText": "SHelltide - Chests + Maiden Farming",
     "repo_url": "https://github.com/SEmptyZero/SHelltide/tree/main",
     "name_override": "SHelltide"
   },
   {
     "category": "Activities",
-    "displayText": "ElectroLuz: Helltides Chests + Maiden Farmer",
+    "displayText": "Helltides Chests + Maiden Farmer",
     "repo_url": "https://github.com/icemancsa/HelltideChests_MaidenFarmerV2.0",
     "name_override": "Helltides"
   },
