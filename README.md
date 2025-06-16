@@ -4,8 +4,8 @@ A Python application with a graphical user interface (GUI) to manage scripts fro
 
 Compiled program is in DIST folder
 
-**This will only work for scripts added by the program. Strongly recommend you backup your current scripts folder before implementing this as your script manager
-**
+This will only work for scripts added by the program. Strongly recommend you backup your current scripts folder before implementing this as your script manager
+
 ## Features
 
 - Add scripts by providing a GitHub repository URL and a specific folder path.
