@@ -55,10 +55,11 @@ def remove_script_from_config(script_to_remove):
         return True # Script was found and removed
     return False # Script not found
 
-def update_script_config(repo_url, updates):
+def update_script_config(repo_url, folder_path, updates):
     scripts = load_scripts_config()
     for script in scripts:
-        if script['repo_url'] == repo_url:
+        # Match script based on both repo_url and folder_path for uniqueness
+        if script.get('repo_url') == repo_url and script.get('folder_path', '') == folder_path:
             script.update(updates)
             break
     save_scripts_config(scripts)

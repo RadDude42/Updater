@@ -80,15 +80,12 @@ class ScriptUpdaterApp(ctk.CTk):
         self.scripts_list_frame = ctk.CTkFrame(self.main_frame)
         self.scripts_list_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
-        self.view_title_label = ctk.CTkLabel(self.scripts_list_frame, text="Managed Scripts", font=ctk.CTkFont(size=16, weight="bold"))
-        self.view_title_label.pack(pady=(5,0), padx=5, anchor="w")
-
         # NEW: Managed Scripts TabView
         # The command will call _on_managed_tab_change when a tab is selected
         self.managed_scripts_tab_view = ctk.CTkTabview(self.scripts_list_frame, command=self._on_managed_tab_change) 
         self.managed_scripts_tab_view.pack(pady=5, padx=5, fill="both", expand=True)
 
-        self.managed_script_categories = ["All", "Activities", "Class Rotations", "Utilities"]
+        self.managed_script_categories = ["All", "Activities", "Class Rotations", "Programs", "Utilities"]
         self.managed_tab_scrollable_frames = {} # To store scrollable frames for each tab
 
         for category_name in self.managed_script_categories:
@@ -105,7 +102,7 @@ class ScriptUpdaterApp(ctk.CTk):
         # self.community_tab_view.pack(pady=5, padx=5, fill="both", expand=True) # Packed in show_community_view
 
         # Define categories including "All"
-        self.community_script_categories = ["All", "Activities", "Class Rotations", "Utilities"]
+        self.community_script_categories = ["All", "Activities", "Class Rotations", "Programs", "Utilities"]
         self.community_script_widgets_by_tab = {category: [] for category in self.community_script_categories}
         self.community_script_checkbox_vars = {} # To store shared IntVars for community scripts
         self.tab_frames = {}
@@ -197,98 +194,115 @@ class ScriptUpdaterApp(ctk.CTk):
         cleaned_repo_url = repo_url.strip().rstrip('/') if repo_url else ''
         folder_path_cleaned = folder_path.strip() if folder_path else ''
 
-        if not cleaned_repo_url:
-            messagebox.showerror("Input Error", "Repository URL cannot be empty.")
-            self.status_bar.configure(text="Error: Repository URL empty.")
-            return False
-        if not local_path: # This is the target_base_directory
-            messagebox.showerror("Input Error", "Local save directory cannot be empty.")
-            self.status_bar.configure(text="Error: Local save directory empty.")
+        if not cleaned_repo_url or not local_path:
+            messagebox.showerror("Input Error", "Repository URL and Local Save Directory cannot be empty.")
+            self.status_bar.configure(text="Error: Missing required inputs.")
             return False
 
         if not cleaned_repo_url.lower().startswith("https://github.com/"):
-            messagebox.showerror("Input Error", "Invalid GitHub repository URL. Must start with 'https://github.com/' and be a valid repository path.")
+            messagebox.showerror("Input Error", "Invalid GitHub repository URL.")
             self.status_bar.configure(text="Error: Invalid GitHub URL format.")
             return False
 
         url_parts = cleaned_repo_url.split('/')
-        if len(url_parts) < 5 or not url_parts[-1] or not url_parts[-2]: 
-            messagebox.showerror("Input Error", "Invalid GitHub repository URL structure. Expected 'https://github.com/username/repositoryname'.")
+        if len(url_parts) < 5 or not url_parts[-1] or not url_parts[-2]:
+            messagebox.showerror("Input Error", "Invalid GitHub repository URL structure.")
             self.status_bar.configure(text="Error: Invalid repository URL structure.")
             return False
-        
+
+        repo_name_from_url = url_parts[-1]
+        effective_branch = github_handler.determine_effective_branch(cleaned_repo_url, None)
+        if not effective_branch: # Should not happen with default 'main' but good to check
+            messagebox.showerror("Error", "Could not determine repository branch.")
+            self.status_bar.configure(text="Error: Could not determine repository branch.")
+            return False
+
         if script_name_override:
-            script_dir_name = script_name_override
+            actual_final_folder_name = script_name_override
+        elif folder_path_cleaned:
+            # Use the last part of the folder_path_cleaned as the name
+            # Strip trailing slashes to ensure basename works correctly
+            temp_folder_name = os.path.basename(folder_path_cleaned.strip('/\\'))
+            if not temp_folder_name: # If folder_path was something like "/" or "" after strip
+                actual_final_folder_name = f"{repo_name_from_url}-{effective_branch}"
+            else:
+                actual_final_folder_name = temp_folder_name
         else:
-            script_dir_name = url_parts[-1]
-            if folder_path_cleaned:
-                script_dir_name += "_" + folder_path_cleaned.replace('/', '_').replace('\\', '_')
-        
-        if not script_dir_name:
+            # Root of the repo, no specific folder_path, no override
+            actual_final_folder_name = f"{repo_name_from_url}-{effective_branch}"
+
+        script_dir_name = actual_final_folder_name # Use this for subsequent logic
+
+        if not script_dir_name: # Should be redundant now but keep as a safeguard
             messagebox.showerror("Input Error", "Could not determine a script directory name.")
             self.status_bar.configure(text="Error: Could not determine script name.")
             return False
-        
+
         if any(s.get('name') == script_dir_name for s in self.scripts_data):
             if is_community_script:
-                if not messagebox.askyesno("Script Exists", f"The script '{script_dir_name}' already exists in your managed scripts. Add anyway (may overwrite or duplicate)?"):
-                    self.status_bar.configure(text=f"Skipped adding existing community script: {script_dir_name}")
-                    return False 
+                if not messagebox.askyesno("Script Exists", f"The script '{script_dir_name}' already exists. Add anyway?"):
+                    self.status_bar.configure(text=f"Skipped adding existing script: {script_dir_name}")
+                    return False
             else:
-                messagebox.showerror("Duplicate Script", f"A script named '{script_dir_name}' already exists in your managed scripts.")
+                messagebox.showerror("Duplicate Script", f"A script named '{script_dir_name}' already exists.")
                 self.status_bar.configure(text=f"Error: Script '{script_dir_name}' already exists.")
                 return False
 
-        self.status_bar.configure(text=f"Adding '{script_dir_name}' from {cleaned_repo_url}...")
-        self.update_idletasks()
-        
-        target_save_path_for_handler = os.path.join(local_path, script_dir_name)
-        
         try:
-            download_success, download_message, final_actual_local_path = github_handler.download_folder_from_github(
-                cleaned_repo_url, 
-                folder_path_cleaned, 
-                target_save_path_for_handler 
+            author_name = self._get_author_from_url(cleaned_repo_url)
+            script_name = script_dir_name
+
+            if category == "Programs":
+                final_local_path = os.path.join(local_path, "Programs", script_name)
+            else:
+                final_local_path = os.path.join(local_path, script_name)
+
+            if os.path.exists(final_local_path):
+                if not messagebox.askyesno("Directory Exists", f"The target directory '{final_local_path}' already exists. Overwrite?"):
+                    self.status_bar.configure(text=f"Skipped adding script to existing directory: {script_dir_name}")
+                    return False
+            
+            self.status_bar.configure(text=f"Adding '{script_dir_name}' from {cleaned_repo_url}...")
+            self.update_idletasks()
+
+            download_success, download_message, final_actual_local_path = github_handler.download_from_github(
+                cleaned_repo_url,
+                folder_path_cleaned,
+                final_local_path,
+                category,
+                branch=None
             )
 
             if download_success:
-                try:
-                    latest_sha = github_handler.get_latest_commit_sha(cleaned_repo_url)
-                    if not latest_sha:
-                         raise Exception("Could not retrieve latest commit SHA.")
-                    
-                    # Use basename of the final actual path as the script's 'name' in config
-                    final_script_name = os.path.basename(final_actual_local_path)
+                latest_sha = github_handler.get_latest_commit_sha(cleaned_repo_url)
+                determined_status = 'Up to date'
+                if not latest_sha:
+                    print(f"[WARNING] Could not retrieve latest commit SHA for {cleaned_repo_url}. Status will be 'Unknown'.")
+                    determined_status = 'Unknown (fetch error)'
 
-                    determined_status = 'Up to date'
-                    if latest_sha is None:
-                        determined_status = 'Unknown (fetch error)'
+                script_info = {
+                    "name": script_dir_name,
+                    "repo_url": cleaned_repo_url,
+                    "folder_path": folder_path_cleaned,
+                    "local_path": final_actual_local_path,
+                    "category": category,
+                    "current_version_sha": latest_sha,
+                    "latest_version_sha": latest_sha,
+                    "last_checked": datetime.datetime.now().isoformat(),
+                    "status": determined_status
+                }
 
-                    script_info = {
-                        "name": final_script_name, 
-                        "repo_url": cleaned_repo_url,
-                        "folder_path": folder_path_cleaned,
-                        "local_path": final_actual_local_path,
-                        "category": category,
-                        "current_version_sha": latest_sha,
-                        "latest_version_sha": latest_sha, # For a new script, current is latest
-                        "last_checked": datetime.datetime.now().isoformat(),
-                        "status": determined_status
-                    }
-                    config_manager.add_script_to_config(script_info)
-                    # Ensure no duplicate script_info object if it was a re-add
-                    self.scripts_data = [s for s in self.scripts_data if s.get('name') != final_script_name] 
-                    self.scripts_data.append(script_info)
-                    self.refresh_scripts_display()
-                    self.status_bar.configure(text=f"Script '{final_script_name}' added successfully.")
-                    return True
-                except Exception as e_post_download:
-                    messagebox.showerror("Post-Download Error", f"Script downloaded to '{final_actual_local_path}', but failed post-processing (SHA/config): {e_post_download}")
-                    self.status_bar.configure(text="Error in post-download steps.")
+                config_manager.add_script_to_config(script_info)
+                self.scripts_data = [s for s in self.scripts_data if s.get('name') != script_dir_name]
+                self.scripts_data.append(script_info)
+                self.refresh_scripts_display()
+                self.status_bar.configure(text=f"Script '{script_dir_name}' added successfully.")
+                return True
             else:
                 messagebox.showerror("Add Script Error", f"Failed to add script '{script_dir_name}': {download_message}")
                 self.status_bar.configure(text=f"Failed to add script '{script_dir_name}'.")
-        
+                return False
+
         except Exception as e_overall:
             import traceback
             error_details = traceback.format_exc()
@@ -311,12 +325,13 @@ class ScriptUpdaterApp(ctk.CTk):
             self.entry_local_path.delete(0, tk.END)
             # Save the used local path as the new default
             self.settings['last_local_path'] = local_path
-            config_manager.save_settings(self.settings)
+            config_manager.save_settings(self.settings) # Restored line for add_script
 
     def update_selected_scripts(self):
         selected_scripts_data = []
         for item in self.script_widgets:
-            if item['checkbox'] and item['checkbox'].get() == 1:
+            # Access the IntVar associated with the checkbox using 'checkbox_var'
+            if 'checkbox_var' in item and item['checkbox_var'].get() == 1:
                 selected_scripts_data.append(item['script_data'])
 
         if not selected_scripts_data:
@@ -330,17 +345,12 @@ class ScriptUpdaterApp(ctk.CTk):
         up_to_date_count = 0
         error_count = 0
 
-        # Create a deep copy of scripts_data to modify, or find indices to update self.scripts_data directly
-        # For simplicity here, we'll assume we find the script in self.scripts_data by a unique identifier (e.g., repo_url + folder_path)
-        # and update it in place. If name/path changes, this needs careful handling.
-
         for script_data_ref in selected_scripts_data: # script_data_ref is a reference to an item in self.scripts_data
             script_name = script_data_ref.get('name', 'Unknown Script')
             self.status_bar.configure(text=f"Checking {script_name} for updates...")
             self.update_idletasks()
 
             try:
-                # For now, assume default branch 'Main'. This could be stored per script later.
                 latest_remote_sha = github_handler.get_latest_commit_sha(script_data_ref['repo_url'])
                 current_local_sha = script_data_ref.get('current_version_sha')
 
@@ -355,13 +365,9 @@ class ScriptUpdaterApp(ctk.CTk):
                     self.status_bar.configure(text=f"Update available for {script_name}. Downloading...")
                     self.update_idletasks()
                     
-                    # Determine the target path for the download operation. 
-                    # This should be the original repo name in the parent directory of the current script.
                     parent_dir_of_current_script = os.path.dirname(script_data_ref['local_path'])
                     original_repo_name_part = script_data_ref['repo_url'].rstrip('/').split('/')[-1]
                     
-                    # Construct the name that the folder would have if downloaded without considering prior restructuring, 
-                    # but including user-specified subfolder_path if any.
                     base_download_name = original_repo_name_part
                     if script_data_ref['folder_path']:
                         cleaned_folder_path = script_data_ref['folder_path'].replace('/', '_').replace('\\', '_')
@@ -372,17 +378,21 @@ class ScriptUpdaterApp(ctk.CTk):
                     print(f"[DEBUG] Update: Script '{script_name}' current local_path: {script_data_ref['local_path']}")
                     print(f"[DEBUG] Update: Target for download op (before potential restructure): {target_for_download_operation}")
 
-                    # Perform the download (which includes overwrite and restructuring)
-                    dl_success, dl_message, final_actual_path = github_handler.download_folder_from_github(
+                    download_success, message, final_script_path = github_handler.download_from_github(
                         script_data_ref['repo_url'], 
                         script_data_ref['folder_path'], 
-                        target_for_download_operation # Pass the potentially 'unstructured' path name
+                        target_for_download_operation, 
+                        script_data_ref['category'], 
+                        branch=None
                     )
 
-                    if dl_success:
+                    if download_success:
                         script_data_ref['current_version_sha'] = latest_remote_sha
+                        script_data_ref['latest_version_sha'] = latest_remote_sha # Ensure latest_version_sha is also updated
                         script_data_ref['local_path'] = final_actual_path # Update path if restructuring changed it
                         script_data_ref['name'] = os.path.basename(final_actual_path) # Update name based on final path
+                        script_data_ref['status'] = "Up to date"  # Set status to Up to date
+                        script_data_ref['update_status_indicator'] = 'uptodate' # Sync indicator
                         updated_count += 1
                         self.status_bar.configure(text=f"{script_name} updated successfully.")
                         print(f"[INFO] {script_name} updated to SHA {latest_remote_sha}. New path: {final_actual_path}")
@@ -390,6 +400,9 @@ class ScriptUpdaterApp(ctk.CTk):
                         messagebox.showerror("Update Error", f"Failed to download update for {script_name}: {dl_message}")
                         error_count += 1
                 else: # SHAs match
+                    script_data_ref['status'] = "Up to date"  # Set status to Up to date
+                    script_data_ref['latest_version_sha'] = latest_remote_sha # Ensure latest_version_sha reflects current SHA
+                    script_data_ref['update_status_indicator'] = 'uptodate' # Sync indicator
                     self.status_bar.configure(text=f"{script_name} is up to date.")
                     up_to_date_count += 1
                     print(f"[INFO] {script_name} is up to date (SHA: {current_local_sha[:7]}).")
@@ -401,12 +414,13 @@ class ScriptUpdaterApp(ctk.CTk):
             finally:
                 self.update_idletasks()
 
-        config_manager.save_scripts_config(self.scripts_data) # Save all changes to timestamps, SHAs, paths
-        self.refresh_scripts_display()
-        
-        summary_message = f"Update check finished. Updated: {updated_count}, Up-to-date: {up_to_date_count}, Errors: {error_count}."
-        messagebox.showinfo("Update Complete", summary_message)
+        config_manager.save_scripts_config(self.scripts_data) # Save all changes to timestamps, SHAs, paths, etc.
+        self.refresh_scripts_display() # Refresh the UI to show new names, etc.
+
+        # Final summary message
+        summary_message = f"Update process complete. Updated: {updated_count}, Up to date: {up_to_date_count}, Errors: {error_count}."
         self.status_bar.configure(text=summary_message)
+        messagebox.showinfo("Update Complete", summary_message)
 
     def _on_managed_tab_change(self, selected_tab_name: str = None):
         """Called when the selected tab in the managed scripts view changes."""
@@ -417,6 +431,85 @@ class ScriptUpdaterApp(ctk.CTk):
         else:
             self.button_add_script.configure(state="normal")
 
+    def refresh_scripts_display(self):
+        # Clear existing widgets from all tab frames
+        for tab_name, scrollable_frame in self.managed_tab_scrollable_frames.items():
+            for widget in scrollable_frame.winfo_children():
+                widget.destroy()
+        self.script_widgets.clear()
+
+        if not self.scripts_data:
+            # Display message in 'All' tab if no scripts at all
+            if "All" in self.managed_tab_scrollable_frames:
+                all_frame = self.managed_tab_scrollable_frames["All"]
+                if all_frame: # Ensure frame exists
+                    ctk.CTkLabel(all_frame, text="No scripts managed yet.").pack(pady=10)
+            # Display message in other category tabs
+            for category, frame in self.managed_tab_scrollable_frames.items():
+                if category != "All": # Check if frame exists before trying to pack into it
+                    if frame: # Ensure frame is not None
+                        ctk.CTkLabel(frame, text=f"No scripts found for {category}.").pack(pady=10)
+            self.on_checkbox_toggle() # Update button states even if no scripts
+            return
+
+        status_order = {
+            'available': 0,
+            'check_failed': 1,
+            'uptodate': 2,
+            'Up to date': 2, # To handle older status values if any
+            'Unknown (fetch error)': 3,
+            'Unknown': 3,
+            None: 4 # Should ideally not happen if status is always set
+        }
+
+        def get_sort_key(script):
+            primary_status = script.get('update_status_indicator')
+            secondary_status = script.get('status')
+            # Prioritize update_status_indicator if available, otherwise use status
+            chosen_status_for_sort = primary_status if primary_status is not None else secondary_status
+            return (status_order.get(chosen_status_for_sort, 99), script.get('name', '').lower())
+
+        try:
+            # Sort scripts_data in place
+            self.scripts_data.sort(key=get_sort_key)
+        except Exception as e:
+            print(f"[Error] Could not sort managed scripts: {e}")
+            # Optionally, inform the user via status bar or messagebox
+
+        scripts_added_to_category_tabs = {cat: False for cat in self.managed_script_categories if cat != "All"}
+
+        for script_data_item in self.scripts_data: # Iterate over the now sorted list
+            checkbox_var = ctk.IntVar(value=0) # Default to unchecked
+
+            self.script_widgets.append({
+                'checkbox_var': checkbox_var,
+                'script_data': script_data_item
+            })
+
+            # Create entry in 'All' tab
+            all_tab_frame = self.managed_tab_scrollable_frames.get("All")
+            if all_tab_frame:
+                self._create_script_entry_ui(all_tab_frame, script_data_item, checkbox_var)
+
+            # Create entry in specific category tab
+            script_category = script_data_item.get('category', 'Utilities') # Default to Utilities
+            category_tab_frame = self.managed_tab_scrollable_frames.get(script_category)
+
+            if category_tab_frame and script_category != "All":
+                self._create_script_entry_ui(category_tab_frame, script_data_item, checkbox_var)
+                scripts_added_to_category_tabs[script_category] = True
+            elif script_category != "All": # Only print warning if it's not 'All' and tab doesn't exist
+                print(f"[WARNING] Managed script '{script_data_item.get('name')}' has unrecognized category '{script_category}'. Not adding to a specific category tab.")
+
+        # For any category tab (not 'All') that didn't get any scripts, add a placeholder label
+        for category, was_populated in scripts_added_to_category_tabs.items():
+            if not was_populated:
+                parent_frame = self.managed_tab_scrollable_frames.get(category)
+                if parent_frame: # Ensure frame exists
+                    ctk.CTkLabel(parent_frame, text=f"No scripts found for {category}.").pack(pady=10)
+        
+        self.on_checkbox_toggle()
+
     def _create_script_entry_ui(self, parent_container, script_data_item, shared_checkbox_var):
         entry_frame = ctk.CTkFrame(parent_container)
         entry_frame.pack(fill="x", pady=2, padx=2)
@@ -425,7 +518,7 @@ class ScriptUpdaterApp(ctk.CTk):
         checkbox.grid(row=0, column=0, rowspan=2, padx=5, pady=5, sticky="ns")
 
         status_indicator = script_data_item.get('update_status_indicator')
-        initial_status = script_data_item.get('status', 'Unknown')
+        initial_status = script_data_item.get('status', 'Unknown') # Fallback to 'status'
         status_text = ""
         if status_indicator == 'available':
             status_text = "🔄 Update Available"
@@ -433,38 +526,41 @@ class ScriptUpdaterApp(ctk.CTk):
             status_text = "✅ Up to date"
         elif status_indicator == 'check_failed':
             status_text = "⚠️ Check Failed"
-        else:
-            if initial_status == 'Up to date':
+        else: # Fallback logic if update_status_indicator is not one of the expected values
+            if initial_status == 'Up to date': # Check initial_status as well
                 status_text = f"✅ {initial_status}"
             elif initial_status == 'Unknown (fetch error)':
                 status_text = f"❔ {initial_status}"
             elif initial_status == 'Unknown':
-                status_text = f"❔ {initial_status}"
-            elif initial_status:
+                 status_text = f"❔ {initial_status}"
+            elif initial_status: # Catch any other non-empty status
                 status_text = f"ℹ️ {initial_status}"
-            else:
+            else: # Default if both are uninformative
                 status_text = "❔ Status Unknown"
         
         script_display_name = script_data_item.get('name', 'N/A')
-        if script_data_item.get('folder_path'): 
+        if script_data_item.get('folder_path'): # Append folder_path if it exists
             script_display_name += f" ({script_data_item['folder_path']})"
         label_name = ctk.CTkLabel(entry_frame, text=script_display_name, anchor="w", font=ctk.CTkFont(weight="bold"))
         label_name.grid(row=0, column=1, sticky="w", padx=5)
 
-        label_status = ctk.CTkLabel(entry_frame, text=status_text, anchor="e", font=ctk.CTkFont(weight="bold"))
+        label_status = ctk.CTkLabel(entry_frame, text=status_text, anchor="e") # Removed bold for now, can be added back if desired
         label_status.grid(row=0, column=2, sticky="e", padx=5)
 
         repo_url = script_data_item.get('repo_url')
         author_name = self._get_author_from_url(repo_url)
+        if not author_name: author_name = "N/A" # Ensure author_name is not None
         label_author = ctk.CTkLabel(entry_frame, text=f"Author: {author_name}", anchor="w", font=ctk.CTkFont(size=10))
         label_author.grid(row=1, column=1, columnspan=2, sticky="w", padx=5)
 
-        entry_frame.columnconfigure(0, weight=0)
-        entry_frame.columnconfigure(1, weight=1)
-        entry_frame.columnconfigure(2, weight=0)
+        entry_frame.columnconfigure(0, weight=0) # Checkbox column
+        entry_frame.columnconfigure(1, weight=1) # Name and Author column (stretchy)
+        entry_frame.columnconfigure(2, weight=0) # Status column
+        
+        # No return needed as it modifies parent_container directly, but good practice to return frame if used
+        return entry_frame
 
-
-    def _create_community_script_entry_ui(self, parent_container, script_info, shared_checkbox_var):
+    def _create_community_script_entry_ui(self, parent_container, script_info, shared_checkbox_var, is_managed):
         """Creates UI elements for a single community script entry in a given tab."""
         item_frame = ctk.CTkFrame(parent_container)
         item_frame.pack(fill="x", pady=2, padx=2)
@@ -475,88 +571,40 @@ class ScriptUpdaterApp(ctk.CTk):
 
         display_text = script_info.get("displayText", "Unnamed Script")
         repo_url = script_info.get('repo_url')
-        folder_path = script_info.get('folder_path') # Kept for context, used in _is_script_managed
-        is_managed = self._is_script_managed(repo_url, folder_path)
+        # folder_path = script_info.get('folder_path') # Not directly used here but part of script identity
 
         current_display_text_for_label = display_text
         checkbox_state = "normal"
+        text_color_for_label = None  # Default/theme color
 
         if is_managed:
             current_display_text_for_label += " (Added)"
             checkbox_state = "disabled"
+            text_color_for_label = "gray70"  # Set text color to gray for managed scripts
 
         checkbox = ctk.CTkCheckBox(
-            item_frame, 
+            item_frame,
             text="",  # Text will be handled by a separate label for better layout control
-            variable=shared_checkbox_var, 
-            onvalue=1, 
-            offvalue=0, 
-            command=self.on_community_checkbox_toggle, 
+            variable=shared_checkbox_var,
+            onvalue=1,
+            offvalue=0,
+            command=self.on_community_checkbox_toggle,
             state=checkbox_state
         )
         # Checkbox spans two rows to align with display text and author text
-        checkbox.grid(row=0, column=0, rowspan=2, padx=(5,0), pady=2, sticky="w")
+        checkbox.grid(row=0, column=0, rowspan=2, padx=(5, 0), pady=2, sticky="w")
 
-        label_display_text = ctk.CTkLabel(item_frame, text=current_display_text_for_label, anchor="w")
-        label_display_text.grid(row=0, column=1, padx=(2,5), pady=(2,0), sticky="ew")
-        
+        label_display_text = ctk.CTkLabel(item_frame, text=current_display_text_for_label, anchor="w", text_color=text_color_for_label)
+        label_display_text.grid(row=0, column=1, padx=(2, 5), pady=(2, 0), sticky="ew")
+
         author_name = self._get_author_from_url(repo_url)
-        if not author_name: # Fallback if author can't be parsed
+        if not author_name:  # Fallback if author can't be parsed
             author_name = "N/A"
-        
+
         label_author = ctk.CTkLabel(item_frame, text=f"Author: {author_name}", anchor="w", font=ctk.CTkFont(size=10))
-        label_author.grid(row=1, column=1, padx=(2,5), pady=(0,2), sticky="ew")
-        
+        label_author.grid(row=1, column=1, padx=(2, 5), pady=(0, 2), sticky="ew")
+
         return item_frame
-
-    def refresh_scripts_display(self):
-        for tab_name, scrollable_frame in self.managed_tab_scrollable_frames.items():
-            for widget in scrollable_frame.winfo_children():
-                widget.destroy()
-        self.script_widgets.clear()
-
-        if not self.scripts_data:
-            no_scripts_label = ctk.CTkLabel(self.managed_tab_scrollable_frames["All"], text="No scripts managed yet.")
-            no_scripts_label.pack(pady=10)
-            self.on_checkbox_toggle()
-            return
-
-        status_order = {
-            'available': 0, 
-            'check_failed': 1, 
-            'uptodate': 2, 
-            'Up to date': 2, 
-            'Unknown (fetch error)': 3,
-            'Unknown': 3, 
-            None: 4
-        }
-        
-        def get_sort_key(script):
-            primary_status = script.get('update_status_indicator')
-            secondary_status = script.get('status')
-            chosen_status_for_sort = primary_status if primary_status is not None else secondary_status
-            return (status_order.get(chosen_status_for_sort, 4), script.get('name', '').lower())
-
-        sorted_scripts = sorted(self.scripts_data, key=get_sort_key)
-        self.scripts_data = sorted_scripts
-
-        for i, script_data_item in enumerate(self.scripts_data):
-            checkbox_var = ctk.IntVar(value=0)
-            
-            self.script_widgets.append({
-                'checkbox_var': checkbox_var, 
-                'script_data': script_data_item
-            })
-
-            self._create_script_entry_ui(self.managed_tab_scrollable_frames["All"], script_data_item, checkbox_var)
-
-            script_category = script_data_item.get('category', 'Utilities')
-            if script_category in self.managed_tab_scrollable_frames and script_category != "All":
-                self._create_script_entry_ui(self.managed_tab_scrollable_frames[script_category], script_data_item, checkbox_var)
-            elif script_category != "All":
-                print(f"[WARNING] Script '{script_data_item.get('name')}' has unrecognized category '{script_category}'. Not adding to a specific category tab.")
-
-        self.on_checkbox_toggle()
 
     def on_checkbox_toggle(self):
         """Called when a script checkbox is toggled. Updates action button states."""
@@ -713,7 +761,6 @@ class ScriptUpdaterApp(ctk.CTk):
             return
         self.current_view = "community"
 
-        self.view_title_label.pack_forget() # Hide label in community view
         self.managed_scripts_tab_view.pack_forget()
 
         # Hide specific input fields, keep Local Save Directory
@@ -744,8 +791,6 @@ class ScriptUpdaterApp(ctk.CTk):
             return
         self.current_view = "main"
 
-        self.view_title_label.configure(text="Managed Scripts")
-        self.view_title_label.pack(pady=(5,0), padx=5, anchor="w") # Show label in main view
         self.community_tab_view.pack_forget()
         self.managed_scripts_tab_view.pack(pady=5, padx=5, fill="both", expand=True)
 
@@ -849,7 +894,7 @@ class ScriptUpdaterApp(ctk.CTk):
             # Create entry in 'All' tab
             all_tab_frame = self.tab_frames.get("All")
             if all_tab_frame:
-                entry_frame_all = self._create_community_script_entry_ui(all_tab_frame, script_info, shared_checkbox_var)
+                entry_frame_all = self._create_community_script_entry_ui(all_tab_frame, script_info, shared_checkbox_var, is_managed)
                 # Store widget info for 'All' tab
                 self.community_script_widgets_by_tab["All"].append({
                     'script_data': script_info,
@@ -861,7 +906,7 @@ class ScriptUpdaterApp(ctk.CTk):
             category = script_info.get("category", "Utilities") # Default to Utilities if not specified
             category_tab_frame = self.tab_frames.get(category)
             if category_tab_frame and category != "All":
-                entry_frame_cat = self._create_community_script_entry_ui(category_tab_frame, script_info, shared_checkbox_var)
+                entry_frame_cat = self._create_community_script_entry_ui(category_tab_frame, script_info, shared_checkbox_var, is_managed)
                 scripts_added_to_category_tabs[category] = True
                 # Store widget info for category tab
                 self.community_script_widgets_by_tab[category].append({

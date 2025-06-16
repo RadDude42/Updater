@@ -4,19 +4,155 @@ import shutil
 import json
 from zipfile import ZipFile
 from io import BytesIO
+import traceback
 
-# Note: For private repositories, authentication (e.g., a token) would be needed.
-# For public repositories, the GitHub API has rate limits for unauthenticated requests.
-
-def get_repo_archive_link(repo_url, branch='main'):
-    """Generates the archive link for a GitHub repository."""
-    # Example repo_url: https://github.com/user/repository
+def get_repo_api_url(repo_url):
+    """Constructs the base API URL from a GitHub repository URL."""
     parts = repo_url.strip('/').split('/')
     if len(parts) < 5 or parts[2] != 'github.com':
         raise ValueError("Invalid GitHub repository URL format.")
     user = parts[3]
-    repo_name = parts[4]
-    return f"https://api.github.com/repos/{user}/{repo_name}/zipball/{branch}"
+    repo_name = parts[4].split('/tree/')[0]
+    return f"https://api.github.com/repos/{user}/{repo_name}"
+
+def download_release_exe(repo_url, local_save_path):
+    """Downloads .exe files from the latest release of a GitHub repository."""
+    try:
+        api_url = get_repo_api_url(repo_url)
+        releases_url = f"{api_url}/releases/latest"
+        response = requests.get(releases_url)
+        response.raise_for_status()
+        release_data = response.json()
+
+        exe_assets = [asset for asset in release_data.get('assets', []) if asset['name'].lower().endswith('.exe')]
+
+        if not exe_assets:
+            return False, "No .exe files found in the latest release.", None
+
+        if os.path.exists(local_save_path):
+            shutil.rmtree(local_save_path)
+        os.makedirs(local_save_path)
+
+        for asset in exe_assets:
+            asset_url = asset['browser_download_url']
+            local_filename = os.path.join(local_save_path, asset['name'])
+            print(f"Downloading release asset: {asset['name']}")
+            with requests.get(asset_url, stream=True) as r:
+                r.raise_for_status()
+                with open(local_filename, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+        
+        return True, f"Successfully downloaded {len(exe_assets)} .exe file(s) from the latest release.", local_save_path
+
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 404:
+            return False, "No releases found for this repository.", None
+        return False, f"Failed to fetch releases: {e}", None
+    except Exception as e:
+        return False, f"An error occurred during release download: {e}", None
+
+def download_repo_exes(repo_url, local_save_path):
+    """Downloads all .exe files found in a GitHub repository's default branch."""
+    try:
+        api_url = get_repo_api_url(repo_url)
+        repo_info = requests.get(api_url).json()
+        default_branch = repo_info.get('default_branch', 'main')
+        
+        trees_url = f"{api_url}/git/trees/{default_branch}?recursive=1"
+        print(f"[DEBUG] Getting repo tree from: {trees_url}")
+        response = requests.get(trees_url)
+        response.raise_for_status()
+        tree_data = response.json()
+
+        # Extensive logging to debug file finding
+        print(f"[DEBUG] Repo tree response status: {response.status_code}")
+        print(f"[DEBUG] Repo tree truncated: {tree_data.get('truncated')}")
+        all_tree_items = tree_data.get('tree', [])
+        print(f"[DEBUG] Total items in tree: {len(all_tree_items)}")
+        
+        print("[DEBUG] --- All Tree Items ---")
+        for item in all_tree_items:
+            print(f"[DEBUG] Item: path={item.get('path')}, type={item.get('type')}, mode={item.get('mode')}")
+        print("[DEBUG] --- End of Tree Items ---")
+
+        exe_files = [item for item in all_tree_items if item.get('path', '').lower().endswith('.exe') and item.get('type') == 'blob']
+        print(f"[DEBUG] Found {len(exe_files)} .exe files after filtering.")
+
+        if not exe_files:
+            return False, "No .exe files found in the repository based on tree scan.", None
+
+        if os.path.exists(local_save_path):
+            shutil.rmtree(local_save_path)
+        os.makedirs(local_save_path)
+
+        # Using contents API to get download URLs is more reliable
+        for exe_file in exe_files:
+            file_path = exe_file['path']
+            contents_url = f"{api_url}/contents/{file_path}?ref={default_branch}"
+            print(f"[DEBUG] Getting contents for {file_path} from {contents_url}")
+            
+            contents_response = requests.get(contents_url)
+            if contents_response.status_code != 200:
+                print(f"[WARNING] Failed to get contents for {file_path}. Status: {contents_response.status_code}. Skipping.")
+                continue
+            
+            download_url = contents_response.json().get('download_url')
+            
+            if not download_url:
+                print(f"[WARNING] No download_url found for {file_path}. Skipping.")
+                continue
+
+            local_filename = os.path.join(local_save_path, os.path.basename(file_path))
+            print(f"Downloading repo file: {file_path}")
+            with requests.get(download_url, stream=True) as r:
+                r.raise_for_status()
+                with open(local_filename, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+
+        downloaded_count = len(os.listdir(local_save_path))
+        if downloaded_count == 0:
+            return False, "Found .exe files in repo data, but failed to download any of them.", None
+
+        return True, f"Successfully downloaded {downloaded_count} .exe file(s) from the repository.", local_save_path
+
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return False, f"An error occurred while scanning repository for .exe files: {e}", None
+
+def determine_effective_branch(repo_url, branch_hint=None):
+    """Determines the effective branch from a repo URL and an optional hint."""
+    parsed_branch_from_url = None
+    if "/tree/" in repo_url:
+        parts = repo_url.split('/tree/')
+        if len(parts) > 1:
+            branch_and_maybe_path = parts[1].split('/')
+            parsed_branch_from_url = branch_and_maybe_path[0]
+            print(f"[DEBUG] Parsed branch '{parsed_branch_from_url}' from URL: {repo_url}")
+    
+    effective_branch = parsed_branch_from_url if parsed_branch_from_url else (branch_hint if branch_hint else 'main')
+    print(f"[DEBUG] Effective branch determined: {effective_branch}")
+    return effective_branch
+
+def download_from_github(repo_url, folder_path, local_save_path, category, branch=None):
+    """Main function to download from GitHub, handling different categories."""
+    if category == "Programs":
+        print("Program download detected. Checking for releases first.")
+        success, message, path = download_release_exe(repo_url, local_save_path)
+        if success:
+            return True, message, path
+        
+        print("No .exe in releases, scanning repository.")
+        success, message, path = download_repo_exes(repo_url, local_save_path)
+        if success:
+            return True, message, path
+        else:
+            return False, "Could not find any .exe files in releases or repository.", None
+    else:
+        # Fallback to original folder download logic for other categories
+        return download_folder_from_github(repo_url, folder_path, local_save_path, branch)
 
 def download_folder_from_github(repo_url, folder_path, local_save_path, branch=None):
     """Downloads a specific folder from a GitHub repository.
@@ -31,239 +167,107 @@ def download_folder_from_github(repo_url, folder_path, local_save_path, branch=N
         tuple: (bool, str, str) indicating (success_status, message, final_script_path).
     """
     try:
-        parsed_branch_from_url = None
-        if "/tree/" in repo_url:
-            parts = repo_url.split('/tree/')
-            repo_url_base = parts[0]
-            branch_and_maybe_path = parts[1].split('/')
-            parsed_branch_from_url = branch_and_maybe_path[0]
-            # Update repo_url to base for further processing if it contained /tree/
-            # This ensures functions like get_repo_archive_link get a clean base URL
-            # repo_url = repo_url_base # Be careful if repo_url is used later for other things
-            print(f"[DEBUG] Parsed branch '{parsed_branch_from_url}' from URL: {repo_url}")
-        
-        effective_branch = parsed_branch_from_url if parsed_branch_from_url else (branch if branch else 'main')
-        print(f"[DEBUG] Effective branch for download: {effective_branch}")
+        effective_branch = determine_effective_branch(repo_url, branch)
+        # The print for effective_branch is now inside determine_effective_branch
 
-        # Use repo_url_base if /tree/ was present, otherwise original repo_url for API link
         api_url_base = repo_url.split('/tree/')[0] if "/tree/" in repo_url else repo_url
-        api_url = get_repo_archive_link(api_url_base, effective_branch)
         
-        # Step 1: Get the redirect URL from the GitHub API
+        user, repo_name = api_url_base.strip('/').split('/')[-2:]
+        archive_url = f"https://api.github.com/repos/{user}/{repo_name}/zipball/{effective_branch}"
+
         api_headers = {
             'Accept': 'application/vnd.github.v3+json',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            # If private repos, add: 'Authorization': f'token {YOUR_GITHUB_TOKEN}'
         }
-        redirect_response = requests.get(api_url, headers=api_headers, allow_redirects=False)
         
-        # Check if the request to the API itself failed before checking for 302
-        if redirect_response.status_code >= 400:
-            error_message = f"GitHub API request failed with status {redirect_response.status_code}."
-            try:
-                error_details = redirect_response.json() # Try to get more details
-                error_message += f" Details: {error_details.get('message', 'No additional details.')}"
-            except json.JSONDecodeError:
-                pass # No JSON body
-            return False, error_message, local_save_path
+        zip_response = requests.get(archive_url, headers=api_headers, stream=True)
+        zip_response.raise_for_status()
 
-        if redirect_response.status_code == 302:
-            download_url = redirect_response.headers.get('Location')
-            if not download_url:
-                return False, "Failed to get download URL: Location header missing after 302 redirect.", local_save_path
-        elif redirect_response.status_code == 200: # Some API versions might directly return content or different structure
-            # This case might need specific handling if the API behavior changes or if it's an unexpected success for this endpoint type
-            # For zipball, a 302 is expected. If we get 200, it might be an error or unexpected response format.
-            # For now, let's assume it's an issue if not 302 for zipball.
-            return False, f"Failed to get download URL. API Status: {redirect_response.status_code}, Response: {redirect_response.text[:200]}", local_save_path
-        else:
-            return False, f"Failed to download archive. Status: {redirect_response.status_code}, URL: {api_url}", local_save_path
+        zip_content = BytesIO(zip_response.content)
+        extracted_count = 0
+        final_actual_path = local_save_path # Initialize with the original save path
 
-        # Step 2: Download the content from the obtained download_url
-        download_headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(download_url, headers=download_headers, stream=True)
-        response.raise_for_status()  # Check for HTTP errors on the actual download
-
-        with ZipFile(BytesIO(response.content)) as zf:
-            print(f"[DEBUG] GitHub Handler: Zip opened. Namelist (first 10): {zf.namelist()[:10]}")
+        with ZipFile(zip_content) as zf:
             if not zf.namelist():
-                return False, "Downloaded zip file is empty.", local_save_path
+                return False, "Downloaded zip file is empty.", final_actual_path
             
-            # The first directory in the zip file is usually <repo_name>-<branch_or_commit_sha>
-            root_zip_dir = zf.namelist()[0].split('/')[0]
-            print(f"[DEBUG] GitHub Handler: Calculated root_zip_dir: '{root_zip_dir}'")
+            repo_root_dir_in_zip = zf.namelist()[0].split('/')[0] + '/'
             
-            user_folder_path_stripped = folder_path.strip('/')
-            print(f"[DEBUG] GitHub Handler: User's folder_path (stripped): '{user_folder_path_stripped}'")
-            
-            # Construct the full path prefix we expect for relevant files inside the zip
-            # If user_folder_path_stripped is empty, we target the root_zip_dir itself.
-            if user_folder_path_stripped:
-                path_prefix_in_zip = os.path.join(root_zip_dir, user_folder_path_stripped)
+            normalized_folder_path_for_zip = folder_path.strip('/').replace(os.sep, '/')
+            if normalized_folder_path_for_zip:
+                search_prefix_in_zip = repo_root_dir_in_zip + normalized_folder_path_for_zip + '/'
             else:
-                path_prefix_in_zip = root_zip_dir
+                search_prefix_in_zip = repo_root_dir_in_zip
+
+            files_to_extract_from_zip = []
+            for item_name in zf.namelist():
+                if item_name.startswith(search_prefix_in_zip) and not item_name.endswith('/'): 
+                    files_to_extract_from_zip.append(item_name)
             
-            full_folder_path_in_zip = path_prefix_in_zip.replace('\\', '/') + '/'
-            # Ensure it always ends with a slash to correctly identify contents *within* this path
-            print(f"[DEBUG] GitHub Handler: Effective full_folder_path_in_zip for matching: '{full_folder_path_in_zip}'")
-
-            if not os.path.exists(local_save_path):
-                os.makedirs(local_save_path)
-            else:
-                # Clear existing contents if any, to ensure a fresh copy
-                for item in os.listdir(local_save_path):
-                    item_path = os.path.join(local_save_path, item)
-                    if os.path.isdir(item_path):
-                        shutil.rmtree(item_path)
-                    else:
-                        os.remove(item_path)
-
-            extracted_count = 0
-            print(f"[DEBUG] GitHub Handler: Starting extraction loop. Looping through {len(zf.infolist())} members.")
-            for member_info in zf.infolist():
-                member_path_original = member_info.filename
-                member_path_normalized = member_path_original.replace('\\', '/')
-                is_dir = member_info.is_dir() # Check if ZipInfo itself marks it as directory
-                # Some zip files might not explicitly mark directories but imply them with trailing slashes
-                if not is_dir and member_path_normalized.endswith('/'): 
-                    is_dir = True
-
-                print(f"[DEBUG] GitHub Handler: Checking member: '{member_path_normalized}', is_dir: {is_dir}")
-
-                if member_path_normalized.startswith(full_folder_path_in_zip) and not is_dir:
-                    # Ensure we are not trying to extract the directory prefix itself if it's listed as a file
-                    if member_path_normalized == full_folder_path_in_zip.rstrip('/') and not user_folder_path_stripped:
-                        print(f"[DEBUG] GitHub Handler: SKIPPING '{member_path_normalized}' - it's the root directory prefix itself, not a file within.")
-                        continue
-                
-                    relative_path = member_path_normalized[len(full_folder_path_in_zip):]
-                    # If relative_path is empty, it means member_path_normalized was exactly full_folder_path_in_zip
-                    # This can happen if full_folder_path_in_zip points to a file, not a dir. But we added trailing slash.
-                    # However, if user_folder_path_stripped was empty, full_folder_path_in_zip is 'root_zip_dir/'
-                    # and member_path_normalized could be 'root_zip_dir/file.txt'. relative_path = 'file.txt'
-                    if not relative_path and member_path_normalized != full_folder_path_in_zip.rstrip('/'): # Avoid issues if full_folder_path_in_zip is a file itself
-                         print(f"[DEBUG] GitHub Handler: SKIPPING '{member_path_normalized}' - relative_path is empty but it's not the directory prefix.")
-                         continue
-                    if not relative_path and user_folder_path_stripped: # if a specific folder was requested and it is the item
-                        print(f"[DEBUG] GitHub Handler: SKIPPING '{member_path_normalized}' - it is the requested folder itself, not a file within.")
-                        continue
-
-                    print(f"[DEBUG] GitHub Handler: EXTRACTING '{member_path_normalized}' as relative_path: '{relative_path}'")
-                    target_file_path = os.path.join(local_save_path, relative_path)
-                    
-                    # Create subdirectories if they don't exist for the file
-                    if os.path.dirname(relative_path): # only if relative_path contains subdirs
-                        os.makedirs(os.path.join(local_save_path, os.path.dirname(relative_path)), exist_ok=True)
-                    
-                    with zf.open(member_info) as source, open(target_file_path, 'wb') as target:
-                        shutil.copyfileobj(source, target)
-                    extracted_count += 1
+            if not files_to_extract_from_zip:
+                folder_exists_as_prefix_in_zip = any(name.startswith(search_prefix_in_zip) for name in zf.namelist())
+                if folder_exists_as_prefix_in_zip:
+                    if os.path.exists(local_save_path):
+                        shutil.rmtree(local_save_path)
+                    os.makedirs(local_save_path, exist_ok=True)
+                    return True, f"Folder '{folder_path if folder_path else 'root'}' downloaded successfully. It is empty or contains only subdirectories.", final_actual_path
                 else:
-                    if not member_path_normalized.startswith(full_folder_path_in_zip):
-                        print(f"[DEBUG] GitHub Handler: SKIPPING '{member_path_normalized}' - does not start with '{full_folder_path_in_zip}'")
-                    if is_dir:
-                        print(f"[DEBUG] GitHub Handler: SKIPPING '{member_path_normalized}' - is a directory.")
-            
-            print(f"[DEBUG] GitHub Handler: Extraction loop finished. Final extracted_count: {extracted_count}")
-            
-            if extracted_count == 0 and folder_path: # Check if folder_path was specified and nothing was extracted
-                 # Check if the folder_path itself was a valid prefix but empty or only contained dirs
-                found_folder_prefix = any(name.startswith(full_folder_path_in_zip) for name in zf.namelist())
-                if not found_folder_prefix:
-                    return False, f"Folder '{folder_path}' not found in repository '{repo_url}' (branch '{branch}'). Searched for prefix '{full_folder_path_in_zip}' in zip.", local_save_path
-                # If prefix found but no files, it might be an empty folder or only contains other folders
-                # This is considered a successful download of an (effectively) empty folder for now.
+                    return False, f"Folder '{folder_path if folder_path else 'root'}' not found in the repository archive (searched for prefix '{search_prefix_in_zip}').", final_actual_path
 
-        # After the loop, decide on success message based on extracted_count
-            if extracted_count > 0:
-                download_success = True
-                message = f"Folder '{folder_path if folder_path else 'root'}' downloaded successfully to '{local_save_path}'. Extracted {extracted_count} files."
-            else:
-                # Check if the target path in zip truly existed but was empty, or if it didn't exist at all
-                path_exists_in_zip = any(name.replace('\\', '/').startswith(full_folder_path_in_zip) for name in zf.namelist())
-                if not path_exists_in_zip and folder_path:
-                     return False, f"Folder '{folder_path}' not found in repository '{repo_url}' (branch '{branch}'). Searched for prefix '{full_folder_path_in_zip}' in zip.", local_save_path
-                elif not path_exists_in_zip and not folder_path: # Root download, but root_zip_dir itself seems not to be a prefix for anything.
-                     download_success = False
-                     message = f"Could not find any files/folders under the root path ('{root_zip_dir}/') in the downloaded zip for '{repo_url}'. The zip might be structured unexpectedly or the repository is empty."
-                else: # Path prefix exists, but no files were extracted (folder is empty or contains only subdirs)
-                    download_success = True
-                    message = f"Folder '{folder_path if folder_path else 'root'}' downloaded successfully to '{local_save_path}'. The target folder in the repository is empty or contains only subdirectories (0 files extracted)."
-            # Determine initial success and message from extraction phase
-            if extracted_count > 0:
-                download_success = True
-                message = f"Folder '{folder_path if folder_path else 'root'}' downloaded successfully to '{local_save_path}'. Extracted {extracted_count} files."
-            # (The 'else' for extracted_count == 0 is handled by the logic above it for empty folders or not found paths)
+            if os.path.exists(local_save_path):
+                shutil.rmtree(local_save_path)
+            print(f"[DEBUG_CASCADE] github_handler.py: os.makedirs (main extraction) trying to create: {local_save_path}")
+            os.makedirs(local_save_path, exist_ok=True)
 
-        final_script_path = local_save_path # Default to original path
-
-        if download_success:
-            # --- Restructuring Logic --- #
+            for file_path_in_zip in files_to_extract_from_zip:
+                relative_path = file_path_in_zip[len(search_prefix_in_zip):]
+                local_file_path = os.path.join(local_save_path, relative_path)
+                
+                parent_dir = os.path.dirname(local_file_path)
+                if parent_dir and not os.path.exists(parent_dir):
+                    os.makedirs(parent_dir)
+                
+                with open(local_file_path, 'wb') as f_out:
+                    f_out.write(zf.read(file_path_in_zip))
+                extracted_count += 1
+        
+        if extracted_count > 0:
+            # --- Lua Script Restructuring Logic ---
             if not os.path.exists(os.path.join(local_save_path, "main.lua")):
                 print(f"[DEBUG] Restructure: main.lua not found in root of {local_save_path}. Checking subdirectories.")
                 items_in_root = os.listdir(local_save_path)
-                subdirectories = [d for d in items_in_root if os.path.isdir(os.path.join(local_save_path, d))]
+                subdirs = [item for item in items_in_root if os.path.isdir(os.path.join(local_save_path, item))]
                 
-                promoted_dir_candidate = None
-                if len(subdirectories) == 1:
-                    candidate_name = subdirectories[0]
-                    if os.path.exists(os.path.join(local_save_path, candidate_name, "main.lua")):
-                        promoted_dir_candidate = candidate_name
-                        print(f"[DEBUG] Restructure: Single subdirectory '{candidate_name}' contains main.lua. Will attempt to promote.")
-                    else:
-                        print(f"[DEBUG] Restructure: Single subdirectory '{candidate_name}' does not contain main.lua. No restructure.")
-                elif len(subdirectories) > 1:
-                    print(f"[DEBUG] Restructure: Multiple subdirectories found. Checking each for main.lua.")
-                    # Optional: if multiple, pick first one with main.lua? For now, stick to single subdir rule for simplicity or user's explicit example.
-                    # For now, only the single subdirectory case is handled for promotion.
-                    pass 
+                if len(subdirs) == 1:
+                    single_subdir_name = subdirs[0]
+                    single_subdir_path = os.path.join(local_save_path, single_subdir_name)
+                    if os.path.exists(os.path.join(single_subdir_path, "main.lua")):
+                        print(f"[DEBUG] Restructure: Found main.lua in single subdirectory '{single_subdir_name}'. Restructuring.")
+                        temp_restructure_dir = local_save_path + "_temp_restructure_dir"
+                        if os.path.exists(temp_restructure_dir):
+                            shutil.rmtree(temp_restructure_dir)
+                        os.makedirs(temp_restructure_dir)
 
-                if promoted_dir_candidate:
-                    source_dir_to_promote = os.path.join(local_save_path, promoted_dir_candidate)
-                    parent_dir_of_current_target = os.path.dirname(local_save_path)
-                    final_destination_basename = promoted_dir_candidate # e.g., "piteer"
-                    final_destination_path = os.path.join(parent_dir_of_current_target, final_destination_basename)
-
-                    print(f"[DEBUG] Restructure: Promoting '{source_dir_to_promote}' to replace '{local_save_path}' with '{final_destination_path}'")
-                    
-                    temp_promoted_path = final_destination_path + "_temp_restructure"
-                    
-                    try:
-                        if os.path.exists(temp_promoted_path):
-                            shutil.rmtree(temp_promoted_path)
+                        for item in os.listdir(single_subdir_path):
+                            shutil.move(os.path.join(single_subdir_path, item), os.path.join(temp_restructure_dir, item))
                         
-                        # Move the actual script content (e.g., piteertest/piteer) to a temporary sibling location (e.g., piteer_temp_restructure)
-                        print(f"[DEBUG] Restructure: Moving '{source_dir_to_promote}' to '{temp_promoted_path}'")
-                        shutil.move(source_dir_to_promote, temp_promoted_path)
+                        shutil.rmtree(single_subdir_path) 
                         
-                        # Delete the original container directory (e.g., piteertest)
-                        print(f"[DEBUG] Restructure: Deleting original container '{local_save_path}'")
-                        shutil.rmtree(local_save_path)
+                        for item in os.listdir(temp_restructure_dir):
+                            shutil.move(os.path.join(temp_restructure_dir, item), os.path.join(local_save_path, item))
                         
-                        # Rename the temporary script folder to its final name (e.g., piteer_temp_restructure -> piteer)
-                        print(f"[DEBUG] Restructure: Renaming '{temp_promoted_path}' to '{final_destination_path}'")
-                        os.rename(temp_promoted_path, final_destination_path)
-                        
-                        final_script_path = final_destination_path # Update the path
-                        message += f" Script folder restructured to '{final_script_path}'."
-                        print(f"[INFO] GitHub Handler: Script folder restructured. New path: {final_script_path}")
-                    except Exception as e_restructure:
-                        message += f" Post-download restructuring failed: {e_restructure}. Script remains at '{local_save_path}'."
-                        print(f"[ERROR] GitHub Handler: Restructuring failed: {e_restructure}. Script may be at '{local_save_path}' or '{temp_promoted_path}'.")
-                        # If restructure fails, final_script_path remains local_save_path (original download location)
-            else:
-                print(f"[DEBUG] Restructure: main.lua found in root of {local_save_path}. No restructure needed.")
-        
-        return download_success, message, final_script_path
+                        shutil.rmtree(temp_restructure_dir) 
+                        print(f"[DEBUG] Restructure: Successfully moved contents from '{single_subdir_name}' to '{local_save_path}'.")
+            # --- End of Lua Script Restructuring Logic ---
+            return True, f"Folder '{folder_path if folder_path else 'root'}' downloaded successfully. Extracted {extracted_count} files.", final_actual_path
+        else:
+            return False, f"Folder '{folder_path if folder_path else 'root'}' was processed, but no files were ultimately extracted.", final_actual_path
 
     except requests.exceptions.RequestException as e:
-        return False, f"Error downloading repository: {e}", local_save_path
-    except ValueError as e:
-        return False, str(e), local_save_path
+        return False, f"Error downloading repository: {e}", local_save_path # Fallback path
     except Exception as e:
-        return False, f"An unexpected error occurred: {e}", local_save_path
+        print(traceback.format_exc()) # Ensure traceback is printed for any other exception
+        return False, f"An unexpected error occurred in download_folder_from_github: {e}", local_save_path # Fallback path
 
 def get_latest_commit_sha(repo_url, branch=None):
     """Fetches the SHA of the latest commit on a given branch of a GitHub repository."""
@@ -273,16 +277,8 @@ def get_latest_commit_sha(repo_url, branch=None):
     user = parts[3]
     repo_name = parts[4].split('/tree/')[0] # Ensure repo_name is clean if URL had /tree/
     
-    parsed_branch_from_url = None
-    if "/tree/" in repo_url:
-        url_parts_for_branch = repo_url.split('/tree/')
-        if len(url_parts_for_branch) > 1:
-            branch_parts = url_parts_for_branch[1].split('/')
-            parsed_branch_from_url = branch_parts[0]
-            print(f"[DEBUG] Parsed branch '{parsed_branch_from_url}' from URL for SHA: {repo_url}")
-
-    effective_branch = parsed_branch_from_url if parsed_branch_from_url else (branch if branch else 'main')
-    print(f"[DEBUG] Effective branch for SHA: {effective_branch}")
+    effective_branch = determine_effective_branch(repo_url, branch)
+    # The print for effective_branch is now inside determine_effective_branch
 
     api_url = f"https://api.github.com/repos/{user}/{repo_name}/commits/{effective_branch}"
     try:

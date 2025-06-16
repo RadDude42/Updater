@@ -9,7 +9,7 @@
     "category": "Activities",
     "displayText": "Helltides Chests + Maiden Farmer",
     "repo_url": "https://github.com/icemancsa/HelltideChests_MaidenFarmerV2.0",
-    "name_override": "Helltides"
+    "name_override": "HelltideChests_MaidenFarmerV2.0"
   },
   {
     "category": "Activities",
@@ -27,7 +27,7 @@
     "category": "Activities",
     "displayText": "Undercity: Does Kurast Undercity real good",
     "repo_url": "https://github.com/TesXter/Undercity/tree/master",
-    "name_override": "Undercity"
+    "name_override": "Kurast_Undercity"
   },
   {
     "category": "Activities",
@@ -39,24 +39,42 @@
     "category": "Class Rotations",
     "displayText": "Sorcerer: Salad Sorc",
     "repo_url": "https://github.com/RadDude42/Sorc_Rota_salad",
-    "name_override": "SaladSorc"
+    "name_override": "Sorc_Rota_salad"
   },
   {
     "category": "Class Rotations",
     "displayText": "Rogue: DT Smoke Enhanced",
     "repo_url": "https://github.com/Sm0oked/Rogue-DT-Smoke",
-    "name_override": "DTSmokeEnhanced"
+    "name_override": "Rogue-DT-Smoke"
   },
   {
     "category": "Utilities",
     "displayText": "Alfred: Your personal butler in Cerrigar",
     "repo_url": "https://github.com/Leoc76101111/AlfredTheButler",
-    "name_override": "Alfred"
+    "name_override": "AlfredTheButler"
   },
   {
     "category": "Utilities",
     "displayText": "LooteerV2: Picks up stuff real good",
     "repo_url": "https://github.com/Letrico/LooteerV2",
     "name_override": "LooteerV2"
+  },
+  {
+    "category": "Programs",
+    "displayText": "D4 Assistant - Helps with Masterworking, Enchanting and more",
+    "repo_url": "https://github.com/RadDude42/diablo4-assistant_suite",
+    "name_override": "diablo4-assistant_suite"
+  },
+  {
+    "category": "Programs",
+    "displayText": "Bossclicker - Used for Varshan, AdvancedScreenClicker.exe",
+    "repo_url": "https://github.com/ozyn-se/Bossclicker",
+    "name_override": "BossclickerVarshan"
+  },
+  {
+    "category": "Programs",
+    "displayText": "Bossclicker - Used for all bosses BUT Varshan, AdvancedScreenClicker.exe",
+    "repo_url": "https://github.com/Zewx1776/diablo4-assistant_suite/releases/tag/boss",
+    "name_override": "BossclickerALL"
   }
 ]

@@ -15,3 +15,5 @@ build/
 # Application-specific user data
 app_settings.json
 managed_scripts.json
+.windsurf/rules/rules.md
+userinput.py
