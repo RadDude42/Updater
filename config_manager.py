@@ -86,3 +86,36 @@ def save_settings(settings):
             json.dump(settings, f, indent=4)
     except IOError as e:
         print(f"[ERROR] Could not write to settings file {SETTINGS_FILE}: {e}")
+
+def get_debug_mode():
+    """Gets the debug mode setting from app settings."""
+    settings = load_settings()
+    return settings.get('debug_mode', False)
+
+def set_debug_mode(enabled):
+    """Sets the debug mode setting in app settings."""
+    settings = load_settings()
+    settings['debug_mode'] = enabled
+    save_settings(settings)
+
+def get_github_token():
+    """Gets the GitHub personal access token from app settings."""
+    settings = load_settings()
+    return settings.get('github_token', '')
+
+def set_github_token(token):
+    """Sets the GitHub personal access token in app settings."""
+    settings = load_settings()
+    settings['github_token'] = token.strip() if token else ''
+    save_settings(settings)
+
+def get_window_size():
+    """Gets the saved window size from app settings."""
+    settings = load_settings()
+    return settings.get('window_size', {'width': 1000, 'height': 700})
+
+def set_window_size(width, height):
+    """Sets the window size in app settings."""
+    settings = load_settings()
+    settings['window_size'] = {'width': width, 'height': height}
+    save_settings(settings)

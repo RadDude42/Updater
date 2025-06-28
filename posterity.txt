@@ -1,6 +1,0 @@
-That seems to have worked correctly. I would like to make an additional detection behavior. If after extracting the files we do not see a main.lua file in the resulting folder, we move the folder inside the parent folder to become the parent folder. I will include an example below to explain what I mean
-
-1. With the file we just extracted, it successfully downloaded all the files. However, inside the folder, I do not see main.lua and instead see a folder called piteer
-2. When I open piteer, I correctly see the main.lua file I'm expecting
-3. With this logic, piteertest should be replaced with piteer as the parent most folder
-4. Once completed, when I look in the 'scripts test' folder, I should see a folder called piteer which contains all of its subfolders

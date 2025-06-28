@@ -5,6 +5,26 @@ import json
 from zipfile import ZipFile
 from io import BytesIO
 import traceback
+from logger_setup import get_logger
+import config_manager
+
+logger = get_logger(__name__)
+
+def get_github_headers():
+    """Get headers for GitHub API requests with optional authentication."""
+    headers = {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
+    token = config_manager.get_github_token()
+    if token:
+        headers['Authorization'] = f'token {token}'
+        logger.debug("Using GitHub token authentication")
+    else:
+        logger.debug("Using unauthenticated GitHub API requests")
+    
+    return headers
 
 def get_repo_api_url(repo_url):
     """Constructs the base API URL from a GitHub repository URL."""
@@ -20,7 +40,7 @@ def download_release_exe(repo_url, local_save_path):
     try:
         api_url = get_repo_api_url(repo_url)
         releases_url = f"{api_url}/releases/latest"
-        response = requests.get(releases_url)
+        response = requests.get(releases_url, headers=get_github_headers())
         response.raise_for_status()
         release_data = response.json()
 
@@ -36,7 +56,7 @@ def download_release_exe(repo_url, local_save_path):
         for asset in exe_assets:
             asset_url = asset['browser_download_url']
             local_filename = os.path.join(local_save_path, asset['name'])
-            print(f"Downloading release asset: {asset['name']}")
+            logger.info(f"Downloading release asset: {asset['name']}")
             with requests.get(asset_url, stream=True) as r:
                 r.raise_for_status()
                 with open(local_filename, 'wb') as f:
@@ -56,28 +76,28 @@ def download_repo_exes(repo_url, local_save_path):
     """Downloads all .exe files found in a GitHub repository's default branch."""
     try:
         api_url = get_repo_api_url(repo_url)
-        repo_info = requests.get(api_url).json()
+        repo_info = requests.get(api_url, headers=get_github_headers()).json()
         default_branch = repo_info.get('default_branch', 'main')
         
         trees_url = f"{api_url}/git/trees/{default_branch}?recursive=1"
-        print(f"[DEBUG] Getting repo tree from: {trees_url}")
-        response = requests.get(trees_url)
+        logger.debug(f"Getting repo tree from: {trees_url}")
+        response = requests.get(trees_url, headers=get_github_headers())
         response.raise_for_status()
         tree_data = response.json()
 
         # Extensive logging to debug file finding
-        print(f"[DEBUG] Repo tree response status: {response.status_code}")
-        print(f"[DEBUG] Repo tree truncated: {tree_data.get('truncated')}")
+        logger.debug(f"Repo tree response status: {response.status_code}")
+        logger.debug(f"Repo tree truncated: {tree_data.get('truncated')}")
         all_tree_items = tree_data.get('tree', [])
-        print(f"[DEBUG] Total items in tree: {len(all_tree_items)}")
+        logger.debug(f"Total items in tree: {len(all_tree_items)}")
         
-        print("[DEBUG] --- All Tree Items ---")
+        logger.debug("--- All Tree Items ---")
         for item in all_tree_items:
-            print(f"[DEBUG] Item: path={item.get('path')}, type={item.get('type')}, mode={item.get('mode')}")
-        print("[DEBUG] --- End of Tree Items ---")
+            logger.debug(f"Item: path={item.get('path')}, type={item.get('type')}, mode={item.get('mode')}")
+        logger.debug("--- End of Tree Items ---")
 
         exe_files = [item for item in all_tree_items if item.get('path', '').lower().endswith('.exe') and item.get('type') == 'blob']
-        print(f"[DEBUG] Found {len(exe_files)} .exe files after filtering.")
+        logger.debug(f"Found {len(exe_files)} .exe files after filtering.")
 
         if not exe_files:
             return False, "No .exe files found in the repository based on tree scan.", None
@@ -90,21 +110,21 @@ def download_repo_exes(repo_url, local_save_path):
         for exe_file in exe_files:
             file_path = exe_file['path']
             contents_url = f"{api_url}/contents/{file_path}?ref={default_branch}"
-            print(f"[DEBUG] Getting contents for {file_path} from {contents_url}")
+            logger.debug(f"Getting contents for {file_path} from {contents_url}")
             
-            contents_response = requests.get(contents_url)
+            contents_response = requests.get(contents_url, headers=get_github_headers())
             if contents_response.status_code != 200:
-                print(f"[WARNING] Failed to get contents for {file_path}. Status: {contents_response.status_code}. Skipping.")
+                logger.warning(f"Failed to get contents for {file_path}. Status: {contents_response.status_code}. Skipping.")
                 continue
             
             download_url = contents_response.json().get('download_url')
             
             if not download_url:
-                print(f"[WARNING] No download_url found for {file_path}. Skipping.")
+                logger.warning(f"No download_url found for {file_path}. Skipping.")
                 continue
 
             local_filename = os.path.join(local_save_path, os.path.basename(file_path))
-            print(f"Downloading repo file: {file_path}")
+            logger.info(f"Downloading repo file: {file_path}")
             with requests.get(download_url, stream=True) as r:
                 r.raise_for_status()
                 with open(local_filename, 'wb') as f:
@@ -118,8 +138,8 @@ def download_repo_exes(repo_url, local_save_path):
         return True, f"Successfully downloaded {downloaded_count} .exe file(s) from the repository.", local_save_path
 
     except Exception as e:
-        import traceback
-        print(traceback.format_exc())
+        logger.error(f"An error occurred while scanning repository for .exe files: {e}")
+        logger.debug(traceback.format_exc())
         return False, f"An error occurred while scanning repository for .exe files: {e}", None
 
 def determine_effective_branch(repo_url, branch_hint=None):
@@ -130,21 +150,21 @@ def determine_effective_branch(repo_url, branch_hint=None):
         if len(parts) > 1:
             branch_and_maybe_path = parts[1].split('/')
             parsed_branch_from_url = branch_and_maybe_path[0]
-            print(f"[DEBUG] Parsed branch '{parsed_branch_from_url}' from URL: {repo_url}")
+            logger.debug(f"Parsed branch '{parsed_branch_from_url}' from URL: {repo_url}")
     
     effective_branch = parsed_branch_from_url if parsed_branch_from_url else (branch_hint if branch_hint else 'main')
-    print(f"[DEBUG] Effective branch determined: {effective_branch}")
+    logger.debug(f"Effective branch determined: {effective_branch}")
     return effective_branch
 
 def download_from_github(repo_url, folder_path, local_save_path, category, branch=None):
     """Main function to download from GitHub, handling different categories."""
     if category == "Programs":
-        print("Program download detected. Checking for releases first.")
+        logger.info("Program download detected. Checking for releases first.")
         success, message, path = download_release_exe(repo_url, local_save_path)
         if success:
             return True, message, path
         
-        print("No .exe in releases, scanning repository.")
+        logger.info("No .exe in releases, scanning repository.")
         success, message, path = download_repo_exes(repo_url, local_save_path)
         if success:
             return True, message, path
@@ -175,12 +195,7 @@ def download_folder_from_github(repo_url, folder_path, local_save_path, branch=N
         user, repo_name = api_url_base.strip('/').split('/')[-2:]
         archive_url = f"https://api.github.com/repos/{user}/{repo_name}/zipball/{effective_branch}"
 
-        api_headers = {
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        
-        zip_response = requests.get(archive_url, headers=api_headers, stream=True)
+        zip_response = requests.get(archive_url, headers=get_github_headers(), stream=True)
         zip_response.raise_for_status()
 
         zip_content = BytesIO(zip_response.content)
@@ -214,10 +229,25 @@ def download_folder_from_github(repo_url, folder_path, local_save_path, branch=N
                 else:
                     return False, f"Folder '{folder_path if folder_path else 'root'}' not found in the repository archive (searched for prefix '{search_prefix_in_zip}').", final_actual_path
 
+            # Preserve "Older Versions" folder if it exists
+            older_versions_backup = None
+            older_versions_path = os.path.join(local_save_path, "Older Versions")
+            if os.path.exists(older_versions_path):
+                import tempfile
+                older_versions_backup = tempfile.mkdtemp()
+                shutil.copytree(older_versions_path, os.path.join(older_versions_backup, "Older Versions"))
+                logger.debug(f"Backed up Older Versions to: {older_versions_backup}")
+            
             if os.path.exists(local_save_path):
                 shutil.rmtree(local_save_path)
-            print(f"[DEBUG_CASCADE] github_handler.py: os.makedirs (main extraction) trying to create: {local_save_path}")
+            logger.debug(f"Creating directory for main extraction: {local_save_path}")
             os.makedirs(local_save_path, exist_ok=True)
+            
+            # Restore "Older Versions" folder if it was backed up
+            if older_versions_backup and os.path.exists(os.path.join(older_versions_backup, "Older Versions")):
+                shutil.copytree(os.path.join(older_versions_backup, "Older Versions"), older_versions_path)
+                shutil.rmtree(older_versions_backup)  # Clean up temp directory
+                logger.debug(f"Restored Older Versions folder")
 
             for file_path_in_zip in files_to_extract_from_zip:
                 relative_path = file_path_in_zip[len(search_prefix_in_zip):]
@@ -234,7 +264,7 @@ def download_folder_from_github(repo_url, folder_path, local_save_path, branch=N
         if extracted_count > 0:
             # --- Lua Script Restructuring Logic ---
             if not os.path.exists(os.path.join(local_save_path, "main.lua")):
-                print(f"[DEBUG] Restructure: main.lua not found in root of {local_save_path}. Checking subdirectories.")
+                logger.debug(f"Restructure: main.lua not found in root of {local_save_path}. Checking subdirectories.")
                 items_in_root = os.listdir(local_save_path)
                 subdirs = [item for item in items_in_root if os.path.isdir(os.path.join(local_save_path, item))]
                 
@@ -242,7 +272,7 @@ def download_folder_from_github(repo_url, folder_path, local_save_path, branch=N
                     single_subdir_name = subdirs[0]
                     single_subdir_path = os.path.join(local_save_path, single_subdir_name)
                     if os.path.exists(os.path.join(single_subdir_path, "main.lua")):
-                        print(f"[DEBUG] Restructure: Found main.lua in single subdirectory '{single_subdir_name}'. Restructuring.")
+                        logger.debug(f"Restructure: Found main.lua in single subdirectory '{single_subdir_name}'. Restructuring.")
                         temp_restructure_dir = local_save_path + "_temp_restructure_dir"
                         if os.path.exists(temp_restructure_dir):
                             shutil.rmtree(temp_restructure_dir)
@@ -257,7 +287,7 @@ def download_folder_from_github(repo_url, folder_path, local_save_path, branch=N
                             shutil.move(os.path.join(temp_restructure_dir, item), os.path.join(local_save_path, item))
                         
                         shutil.rmtree(temp_restructure_dir) 
-                        print(f"[DEBUG] Restructure: Successfully moved contents from '{single_subdir_name}' to '{local_save_path}'.")
+                        logger.debug(f"Restructure: Successfully moved contents from '{single_subdir_name}' to '{local_save_path}'.")
             # --- End of Lua Script Restructuring Logic ---
             return True, f"Folder '{folder_path if folder_path else 'root'}' downloaded successfully. Extracted {extracted_count} files.", final_actual_path
         else:
@@ -266,7 +296,8 @@ def download_folder_from_github(repo_url, folder_path, local_save_path, branch=N
     except requests.exceptions.RequestException as e:
         return False, f"Error downloading repository: {e}", local_save_path # Fallback path
     except Exception as e:
-        print(traceback.format_exc()) # Ensure traceback is printed for any other exception
+        logger.error(f"An unexpected error occurred in download_folder_from_github: {e}")
+        logger.debug(traceback.format_exc())
         return False, f"An unexpected error occurred in download_folder_from_github: {e}", local_save_path # Fallback path
 
 def get_latest_commit_sha(repo_url, branch=None):
@@ -282,15 +313,206 @@ def get_latest_commit_sha(repo_url, branch=None):
 
     api_url = f"https://api.github.com/repos/{user}/{repo_name}/commits/{effective_branch}"
     try:
-        response = requests.get(api_url)
+        response = requests.get(api_url, headers=get_github_headers())
         response.raise_for_status()
         return response.json()['sha']
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching latest commit SHA: {e}")
+        logger.error(f"Error fetching latest commit SHA: {e}")
         return None
     except (KeyError, IndexError):
-        print(f"Error parsing commit SHA from API response for {api_url}")
+        logger.error(f"Error parsing commit SHA from API response for {api_url}")
         return None
+
+def archive_current_version(script_path, commit_sha):
+    """Archives the current version of a script before updating.
+    
+    Args:
+        script_path (str): Path to the script folder
+        commit_sha (str): The commit SHA for the current version
+        
+    Returns:
+        bool: True if archiving was successful, False otherwise
+    """
+    try:
+        if not os.path.exists(script_path):
+            logger.warning(f"Script path does not exist: {script_path}")
+            return False
+        
+        # Use smart archiving for GitHub updates
+        return archive_current_version_smart(script_path, commit_sha, "from-github")
+        
+    except Exception as e:
+        logger.error(f"Failed to archive current version: {e}")
+        return False
+
+def find_existing_archive_by_sha(older_versions_dir, sha_short):
+    """Find an existing archive folder that contains the specified SHA.
+    
+    Args:
+        older_versions_dir (str): Path to the Older Versions directory
+        sha_short (str): Short SHA (8 characters) to search for
+        
+    Returns:
+        str or None: Name of the existing archive folder, or None if not found
+    """
+    if not os.path.exists(older_versions_dir):
+        return None
+    
+    for folder_name in os.listdir(older_versions_dir):
+        if sha_short in folder_name:
+            return folder_name
+    return None
+
+def archive_current_version_smart(script_path, commit_sha, context):
+    """Archive current version with smart deduplication.
+    
+    Args:
+        script_path (str): Path to the script folder
+        commit_sha (str): The commit SHA for the current version
+        context (str): Context suffix like "from-github" or "before-restore"
+        
+    Returns:
+        bool: True if archiving was successful, False otherwise
+    """
+    try:
+        older_versions_dir = os.path.join(script_path, "Older Versions")
+        
+        # Check if this SHA already exists
+        existing_archive = find_existing_archive_by_sha(older_versions_dir, commit_sha[:8])
+        if existing_archive:
+            logger.info(f"SHA {commit_sha[:8]} already archived in: {existing_archive}")
+            return True  # No need to create duplicate
+        
+        # Create new archive since SHA doesn't exist
+        os.makedirs(older_versions_dir, exist_ok=True)
+        
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        archive_folder_name = f"{timestamp}_{commit_sha[:8]}_{context}"
+        archive_path = os.path.join(older_versions_dir, archive_folder_name)
+        
+        if os.path.exists(archive_path):
+            shutil.rmtree(archive_path)
+        os.makedirs(archive_path)
+        
+        for item in os.listdir(script_path):
+            if item != "Older Versions":
+                item_path = os.path.join(script_path, item)
+                dest_path = os.path.join(archive_path, item)
+                if os.path.isdir(item_path):
+                    shutil.copytree(item_path, dest_path)
+                else:
+                    shutil.copy2(item_path, dest_path)
+        
+        logger.info(f"Archived current version to: {archive_path}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to archive current version: {e}")
+        return False
+
+def restore_version(script_path, version_folder_name, current_sha=None):
+    """Restores a specific version from the archive.
+    
+    Args:
+        script_path (str): Path to the script folder
+        version_folder_name (str): Name of the version folder to restore
+        current_sha (str): SHA of the currently active version (if known)
+        
+    Returns:
+        bool: True if restoration was successful, False otherwise
+    """
+    try:
+        older_versions_dir = os.path.join(script_path, "Older Versions")
+        version_path = os.path.join(older_versions_dir, version_folder_name)
+        
+        if not os.path.exists(version_path):
+            logger.error(f"Version folder does not exist: {version_path}")
+            return False
+        
+        # Smart deduplication: Check if current SHA already has an archive
+        if current_sha:
+            existing_archive = find_existing_archive_by_sha(older_versions_dir, current_sha[:8])
+            if existing_archive:
+                logger.info(f"Current version SHA {current_sha[:8]} already archived in: {existing_archive}")
+                # Don't create duplicate - the version is already safely stored
+            else:
+                # Create new archive since this SHA doesn't exist yet
+                archive_current_version_smart(script_path, current_sha, "before-restore")
+        else:
+            # We don't have SHA info, create archive with timestamp
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            archive_name = f"{timestamp}_active_before-restore"
+            archive_path = os.path.join(older_versions_dir, archive_name)
+            
+            if os.path.exists(archive_path):
+                shutil.rmtree(archive_path)
+            os.makedirs(archive_path)
+            
+            for item in os.listdir(script_path):
+                if item != "Older Versions":
+                    item_path = os.path.join(script_path, item)
+                    dest_path = os.path.join(archive_path, item)
+                    if os.path.isdir(item_path):
+                        shutil.copytree(item_path, dest_path)
+                    else:
+                        shutil.copy2(item_path, dest_path)
+            
+            logger.info(f"Archived current version before restore to: {archive_path}")
+        
+        # Remove current files (except Older Versions)
+        for item in os.listdir(script_path):
+            if item != "Older Versions":
+                item_path = os.path.join(script_path, item)
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                else:
+                    os.remove(item_path)
+        
+        # Copy files from the selected version
+        for item in os.listdir(version_path):
+            src_path = os.path.join(version_path, item)
+            dest_path = os.path.join(script_path, item)
+            if os.path.isdir(src_path):
+                shutil.copytree(src_path, dest_path)
+            else:
+                shutil.copy2(src_path, dest_path)
+        
+        logger.info(f"Restored version: {version_folder_name}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to restore version: {e}")
+        return False
+
+def get_available_versions(script_path):
+    """Gets a list of available archived versions for a script.
+    
+    Args:
+        script_path (str): Path to the script folder
+        
+    Returns:
+        list: List of version folder names, sorted by date (newest first)
+    """
+    try:
+        older_versions_dir = os.path.join(script_path, "Older Versions")
+        if not os.path.exists(older_versions_dir):
+            return []
+        
+        versions = []
+        for item in os.listdir(older_versions_dir):
+            item_path = os.path.join(older_versions_dir, item)
+            if os.path.isdir(item_path):
+                versions.append(item)
+        
+        # Sort by creation time (newest first)
+        versions.sort(key=lambda x: os.path.getctime(os.path.join(older_versions_dir, x)), reverse=True)
+        return versions
+        
+    except Exception as e:
+        logger.error(f"Failed to get available versions: {e}")
+        return []
 
 if __name__ == '__main__':
     # Example Usage (for testing)

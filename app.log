@@ -1,0 +1,29 @@
+2025-06-28 11:28:52,749 - INFO - setup_logger:47 - Debug mode enabled. Logging to: E:\Github Projects\Updater\app.log
+2025-06-28 11:28:52,754 - INFO - archive_current_version:338 - Archived current version to: C:\Users\Josh\AppData\Local\Temp\test_script_versioning\Older Versions\2025-06-28_11-28-52_test123a
+2025-06-28 11:28:52,761 - INFO - archive_current_version:338 - Archived current version to: C:\Users\Josh\AppData\Local\Temp\test_script_versioning\Older Versions\2025-06-28_11-28-52_version1
+2025-06-28 11:28:52,764 - INFO - archive_current_version:338 - Archived current version to: C:\Users\Josh\AppData\Local\Temp\test_script_versioning\Older Versions\2025-06-28_11-28-52_version2
+2025-06-28 11:31:56,818 - INFO - setup_logger:47 - Debug mode enabled. Logging to: E:\Github Projects\Updater\app.log
+2025-06-28 11:31:56,847 - INFO - archive_current_version:338 - Archived current version to: C:/Programs/Diablo 4 Stuff/diablo_qqt/Updater/scripts test\Sorc_Rota_salad\Older Versions\2025-06-28_11-31-56_manual_t
+2025-06-28 11:57:25,019 - INFO - setup_logger:47 - Debug mode enabled. Logging to: E:\Github Projects\Updater\app.log
+2025-06-28 11:57:25,019 - INFO - toggle_debug_mode:1106 - Debug mode enabled
+2025-06-28 11:57:35,958 - DEBUG - determine_effective_branch:156 - Effective branch determined: main
+2025-06-28 11:57:35,964 - DEBUG - get_github_headers:23 - Using GitHub token authentication
+2025-06-28 11:57:35,964 - DEBUG - _new_conn:1049 - Starting new HTTPS connection (1): api.github.com:443
+2025-06-28 11:57:36,407 - DEBUG - _make_request:544 - https://api.github.com:443 "GET /repos/RadDude42/Sorc_Rota_salad/commits/main HTTP/1.1" 200 None
+2025-06-28 11:57:36,427 - INFO - archive_current_version:350 - Archived current version to: C:/Programs/Diablo 4 Stuff/diablo_qqt/Updater/scripts test\Sorc_Rota_salad\Older Versions\2025-06-28_11-57-36_540db8a7
+2025-06-28 11:57:36,427 - DEBUG - determine_effective_branch:156 - Effective branch determined: main
+2025-06-28 11:57:36,427 - DEBUG - get_github_headers:23 - Using GitHub token authentication
+2025-06-28 11:57:36,428 - DEBUG - _new_conn:1049 - Starting new HTTPS connection (1): api.github.com:443
+2025-06-28 11:57:36,770 - DEBUG - _make_request:544 - https://api.github.com:443 "GET /repos/RadDude42/Sorc_Rota_salad/zipball/main HTTP/1.1" 302 0
+2025-06-28 11:57:36,770 - DEBUG - _new_conn:1049 - Starting new HTTPS connection (1): codeload.github.com:443
+2025-06-28 11:57:37,133 - DEBUG - _make_request:544 - https://codeload.github.com:443 "GET /RadDude42/Sorc_Rota_salad/legacy.zip/refs/heads/main HTTP/1.1" 200 None
+2025-06-28 11:57:37,228 - DEBUG - download_folder_from_github:234 - Creating directory for main extraction: C:/Programs/Diablo 4 Stuff/diablo_qqt/Updater/scripts test\Sorc_Rota_salad
+2025-06-28 11:57:37,241 - INFO - update_selected_scripts:442 - Sorc_Rota_salad updated to SHA c161d92bf437b93071585899949a918aa4e1bc82. New path: C:/Programs/Diablo 4 Stuff/diablo_qqt/Updater/scripts test\Sorc_Rota_salad
+2025-06-28 12:00:27,032 - INFO - setup_logger:47 - Debug mode enabled. Logging to: E:\Github Projects\Updater\app.log
+2025-06-28 12:00:27,052 - INFO - archive_current_version:350 - Archived current version to: C:/Programs/Diablo 4 Stuff/diablo_qqt/Updater/scripts test/Sorc_Rota_salad\Older Versions\2025-06-28_12-00-27_test_deb
+2025-06-28 12:01:27,512 - INFO - setup_logger:47 - Debug mode enabled. Logging to: E:\Github Projects\Updater\app.log
+2025-06-28 12:01:27,512 - INFO - __init__:53 - Application started
+2025-06-28 12:01:28,034 - DEBUG - determine_effective_branch:156 - Effective branch determined: main
+2025-06-28 12:01:28,034 - DEBUG - get_github_headers:23 - Using GitHub token authentication
+2025-06-28 12:01:28,036 - DEBUG - _new_conn:1049 - Starting new HTTPS connection (1): api.github.com:443
+2025-06-28 12:01:28,434 - DEBUG - _make_request:544 - https://api.github.com:443 "GET /repos/RadDude42/Sorc_Rota_salad/commits/main HTTP/1.1" 200 None

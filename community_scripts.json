@@ -76,5 +76,11 @@
     "displayText": "Bossclicker - Used for all bosses BUT Varshan, AdvancedScreenClicker.exe",
     "repo_url": "https://github.com/Zewx1776/diablo4-assistant_suite/releases/tag/boss",
     "name_override": "BossclickerALL"
+  },
+  {
+    "category": "Programs",
+    "displayText": "Build-Scraper: Scrapes builds from Mobalytics for affix import into Alfred",
+    "repo_url": "https://github.com/RadDude42/Build-Scraper",
+    "name_override": "Build-Scraper"
   }
 ]

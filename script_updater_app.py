@@ -23,6 +23,9 @@ import datetime
 import threading
 import queue
 import json
+from logger_setup import setup_logger, get_logger
+
+logger = get_logger(__name__)
 
 ctk.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
 ctk.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
@@ -32,7 +35,13 @@ class ScriptUpdaterApp(ctk.CTk):
         super().__init__()
 
         self.title("GitHub Script Updater")
-        self.geometry("800x600")
+        
+        # Load saved window size
+        window_size = config_manager.get_window_size()
+        self.geometry(f"{window_size['width']}x{window_size['height']}")
+        
+        # Bind window resize event to save size
+        self.bind("<Configure>", self.on_window_resize)
 
         self.scripts_data = config_manager.load_scripts_config()
         self.community_scripts_data = self.load_community_scripts_config()
@@ -44,6 +53,10 @@ class ScriptUpdaterApp(ctk.CTk):
 
         self.settings = config_manager.load_settings()
 
+        # Initialize logger based on debug mode setting
+        debug_mode = config_manager.get_debug_mode()
+        setup_logger(debug_mode)
+        logger.info("Application started")
 
         # --- Input Frame ---
         self.input_frame = ctk.CTkFrame(self.main_frame)
@@ -51,34 +64,74 @@ class ScriptUpdaterApp(ctk.CTk):
 
         self.label_repo_url = ctk.CTkLabel(self.input_frame, text="GitHub Repo URL:")
         self.label_repo_url.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.entry_repo_url = ctk.CTkEntry(self.input_frame, width=300)
-        self.entry_repo_url.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        self.entry_repo_url = ctk.CTkEntry(self.input_frame, width=250)
+        self.entry_repo_url.grid(row=0, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
+        
+        # Add debug mode checkbox next to repo URL
+        self.debug_mode_var = ctk.BooleanVar(value=config_manager.get_debug_mode())
+        self.debug_checkbox = ctk.CTkCheckBox(self.input_frame, text="Debug Mode", 
+                                            variable=self.debug_mode_var, command=self.toggle_debug_mode)
+        self.debug_checkbox.grid(row=0, column=3, padx=5, pady=5)
 
         self.label_folder_path = ctk.CTkLabel(self.input_frame, text="Folder Path in Repo (optional):")
         self.label_folder_path.grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        self.entry_folder_path = ctk.CTkEntry(self.input_frame, width=300)
-        self.entry_folder_path.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        self.entry_folder_path = ctk.CTkEntry(self.input_frame, width=250)
+        self.entry_folder_path.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
         self.entry_folder_path.insert(0, "") # Default to empty (repo root or user must specify)
 
         self.label_local_path = ctk.CTkLabel(self.input_frame, text="Local Save Directory:")
         self.label_local_path.grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.entry_local_path = ctk.CTkEntry(self.input_frame, width=250)
-        self.entry_local_path.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        self.entry_local_path.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
         # Load and set the last used local path
         last_local_path = self.settings.get('last_local_path', '')
         if last_local_path:
             self.entry_local_path.insert(0, last_local_path)
         self.button_browse_local_path = ctk.CTkButton(self.input_frame, text="Browse", command=self.browse_local_path)
-        self.button_browse_local_path.grid(row=2, column=2, padx=5, pady=5)
+        self.button_browse_local_path.grid(row=2, column=3, padx=5, pady=5)
+        
+        # Add help button next to Browse button
+        self.button_help = ctk.CTkButton(self.input_frame, text="?", width=30, command=self.show_help)
+        self.button_help.grid(row=2, column=4, padx=5, pady=5)
+
+        # Add GitHub token input
+        self.label_github_token = ctk.CTkLabel(self.input_frame, text="GitHub Token (optional):")
+        self.label_github_token.grid(row=3, column=0, padx=5, pady=5, sticky="w")
+        self.entry_github_token = ctk.CTkEntry(self.input_frame, width=250, show="*", placeholder_text="ghp_xxxxxxxxxxxxxxxxxxxx")
+        self.entry_github_token.grid(row=3, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
+        
+        # Load existing token
+        existing_token = config_manager.get_github_token()
+        if existing_token:
+            self.entry_github_token.insert(0, existing_token)
+        
+        # Add save token button
+        self.button_save_token = ctk.CTkButton(self.input_frame, text="Save Token", width=100, command=self.save_github_token)
+        self.button_save_token.grid(row=3, column=3, padx=5, pady=5)
+        
+        # Add clear token button
+        self.button_clear_token = ctk.CTkButton(self.input_frame, text="Clear", width=60, command=self.clear_github_token)
+        self.button_clear_token.grid(row=3, column=4, padx=5, pady=5)
 
         self.button_add_script = ctk.CTkButton(self.input_frame, text="Add Script", command=self.add_script)
-        self.button_add_script.grid(row=3, column=0, columnspan=3, pady=10, sticky="ew") # Reverted to original grid placement
+        self.button_add_script.grid(row=4, column=0, columnspan=5, pady=10, sticky="ew") # Updated to span 5 columns
         
         self.input_frame.columnconfigure(1, weight=1) # Make entry fields expand
 
         # --- Scripts List Frame ---
         self.scripts_list_frame = ctk.CTkFrame(self.main_frame)
         self.scripts_list_frame.pack(pady=10, padx=10, fill="both", expand=True)
+
+        # Add search/filter bar
+        self.search_frame = ctk.CTkFrame(self.scripts_list_frame)
+        self.search_frame.pack(pady=5, padx=5, fill="x")
+        
+        self.search_label = ctk.CTkLabel(self.search_frame, text="Filter scripts:")
+        self.search_label.pack(side="left", padx=5)
+        
+        self.search_entry = ctk.CTkEntry(self.search_frame, placeholder_text="Type to filter...")
+        self.search_entry.pack(side="left", padx=5, fill="x", expand=True)
+        self.search_entry.bind("<KeyRelease>", self.on_search_changed)
 
         # NEW: Managed Scripts TabView
         # The command will call _on_managed_tab_change when a tab is selected
@@ -136,8 +189,13 @@ class ScriptUpdaterApp(ctk.CTk):
         self.button_delete_selected = ctk.CTkButton(self.action_buttons_frame, text="Delete Selected", command=self.delete_selected_script, state="disabled")
         self.button_delete_selected.pack(side="left", padx=5)
 
+        self.button_manage_versions = ctk.CTkButton(self.action_buttons_frame, text="Manage Versions", command=self.manage_versions, state="disabled")
+        self.button_manage_versions.pack(side="left", padx=5)
+
         self.button_show_community_view = ctk.CTkButton(self.action_buttons_frame, text="Community Scripts", command=self.show_community_view)
         self.button_show_community_view.pack(side="right", padx=5) # Moved to action_buttons_frame
+
+
 
         # --- Status Bar ---
         self.status_bar = ctk.CTkLabel(self, text="Ready", anchor="w")
@@ -316,16 +374,15 @@ class ScriptUpdaterApp(ctk.CTk):
         repo_url = self.entry_repo_url.get()
         folder_path = self.entry_folder_path.get()
         local_path = self.entry_local_path.get()
-        current_managed_tab = self.managed_scripts_tab_view.get()
-        # We've already ensured 'Add Script' is disabled if 'All' is selected, 
-        # so current_managed_tab should be a valid category here.
-        if self._perform_add_script(repo_url, folder_path, local_path, current_managed_tab, is_community_script=False):
+        
+        # Show category selection dialog instead of using current tab
+        if self.show_category_selection_dialog(repo_url, folder_path, local_path):
             self.entry_repo_url.delete(0, tk.END)
             self.entry_folder_path.delete(0, tk.END)
-            self.entry_local_path.delete(0, tk.END)
+            # Keep the local path for convenience
             # Save the used local path as the new default
             self.settings['last_local_path'] = local_path
-            config_manager.save_settings(self.settings) # Restored line for add_script
+            config_manager.save_settings(self.settings)
 
     def update_selected_scripts(self):
         selected_scripts_data = []
@@ -365,23 +422,16 @@ class ScriptUpdaterApp(ctk.CTk):
                     self.status_bar.configure(text=f"Update available for {script_name}. Downloading...")
                     self.update_idletasks()
                     
-                    parent_dir_of_current_script = os.path.dirname(script_data_ref['local_path'])
-                    original_repo_name_part = script_data_ref['repo_url'].rstrip('/').split('/')[-1]
+                    # Archive current version before updating
+                    current_sha_for_archive = current_local_sha if current_local_sha else "unknown"
+                    archive_success = github_handler.archive_current_version(script_data_ref['local_path'], current_sha_for_archive)
+                    if not archive_success:
+                        logger.warning(f"Failed to archive current version of {script_name} before update")
                     
-                    base_download_name = original_repo_name_part
-                    if script_data_ref['folder_path']:
-                        cleaned_folder_path = script_data_ref['folder_path'].replace('/', '_').replace('\\', '_')
-                        base_download_name += "_" + cleaned_folder_path
-
-                    target_for_download_operation = os.path.join(parent_dir_of_current_script, base_download_name)
-
-                    print(f"[DEBUG] Update: Script '{script_name}' current local_path: {script_data_ref['local_path']}")
-                    print(f"[DEBUG] Update: Target for download op (before potential restructure): {target_for_download_operation}")
-
                     download_success, message, final_script_path = github_handler.download_from_github(
                         script_data_ref['repo_url'], 
                         script_data_ref['folder_path'], 
-                        target_for_download_operation, 
+                        script_data_ref['local_path'], 
                         script_data_ref['category'], 
                         branch=None
                     )
@@ -389,15 +439,15 @@ class ScriptUpdaterApp(ctk.CTk):
                     if download_success:
                         script_data_ref['current_version_sha'] = latest_remote_sha
                         script_data_ref['latest_version_sha'] = latest_remote_sha # Ensure latest_version_sha is also updated
-                        script_data_ref['local_path'] = final_actual_path # Update path if restructuring changed it
-                        script_data_ref['name'] = os.path.basename(final_actual_path) # Update name based on final path
+                        script_data_ref['local_path'] = final_script_path # Update path if restructuring changed it
+                        script_data_ref['name'] = os.path.basename(final_script_path) if final_script_path else script_name # Update name based on final path
                         script_data_ref['status'] = "Up to date"  # Set status to Up to date
                         script_data_ref['update_status_indicator'] = 'uptodate' # Sync indicator
                         updated_count += 1
                         self.status_bar.configure(text=f"{script_name} updated successfully.")
-                        print(f"[INFO] {script_name} updated to SHA {latest_remote_sha}. New path: {final_actual_path}")
+                        logger.info(f"{script_name} updated to SHA {latest_remote_sha}. New path: {final_script_path}")
                     else:
-                        messagebox.showerror("Update Error", f"Failed to download update for {script_name}: {dl_message}")
+                        messagebox.showerror("Update Error", f"Failed to download update for {script_name}: {message}")
                         error_count += 1
                 else: # SHAs match
                     script_data_ref['status'] = "Up to date"  # Set status to Up to date
@@ -424,14 +474,11 @@ class ScriptUpdaterApp(ctk.CTk):
 
     def _on_managed_tab_change(self, selected_tab_name: str = None):
         """Called when the selected tab in the managed scripts view changes."""
-        # CTkTabview passes the name of the selected tab. If called manually, it might be None.
-        current_tab = selected_tab_name if selected_tab_name is not None else self.managed_scripts_tab_view.get()
-        if current_tab == "All":
-            self.button_add_script.configure(state="disabled")
-        else:
-            self.button_add_script.configure(state="normal")
+        # Since we now use a category selection dialog, the Add Script button is always enabled
+        # This method can be simplified or removed, but keeping it for potential future use
+        pass
 
-    def refresh_scripts_display(self):
+    def refresh_scripts_display(self, filter_text=""):
         # Clear existing widgets from all tab frames
         for tab_name, scrollable_frame in self.managed_tab_scrollable_frames.items():
             for widget in scrollable_frame.winfo_children():
@@ -476,9 +523,15 @@ class ScriptUpdaterApp(ctk.CTk):
             print(f"[Error] Could not sort managed scripts: {e}")
             # Optionally, inform the user via status bar or messagebox
 
+        # Filter scripts based on search text
+        filtered_scripts = self.scripts_data
+        if filter_text:
+            filtered_scripts = [script for script in self.scripts_data 
+                              if filter_text in script.get('name', '').lower()]
+
         scripts_added_to_category_tabs = {cat: False for cat in self.managed_script_categories if cat != "All"}
 
-        for script_data_item in self.scripts_data: # Iterate over the now sorted list
+        for script_data_item in filtered_scripts: # Iterate over the filtered list
             checkbox_var = ctk.IntVar(value=0) # Default to unchecked
 
             self.script_widgets.append({
@@ -618,10 +671,12 @@ class ScriptUpdaterApp(ctk.CTk):
         if hasattr(self, 'button_update_selected'): self.button_update_selected.configure(state=action_button_state)
         if hasattr(self, 'button_delete_selected'): self.button_delete_selected.configure(state=action_button_state)
 
-        # State for GitHub button
-        github_button_state = "normal" if selected_count == 1 else "disabled"
+        # State for GitHub button and Manage Versions button (both require exactly one selection)
+        single_selection_state = "normal" if selected_count == 1 else "disabled"
         if hasattr(self, 'button_open_github'): # Check if button exists
-            self.button_open_github.configure(state=github_button_state)
+            self.button_open_github.configure(state=single_selection_state)
+        if hasattr(self, 'button_manage_versions'): # Check if button exists
+            self.button_manage_versions.configure(state=single_selection_state)
 
     def process_queue(self):
         """Processes messages from the worker thread queue to update the UI."""
@@ -1046,6 +1101,301 @@ class ScriptUpdaterApp(ctk.CTk):
         if added_count == 0 and failed_count == 0 and scripts_to_process: 
             final_status_text = "Community scripts processed; no changes made (e.g., all skipped or already exist)."
         self.status_bar.configure(text=final_status_text)
+
+    def toggle_debug_mode(self):
+        """Toggle debug mode and reinitialize logger."""
+        debug_enabled = self.debug_mode_var.get()
+        config_manager.set_debug_mode(debug_enabled)
+        setup_logger(debug_enabled)
+        
+        if debug_enabled:
+            logger.info("Debug mode enabled")
+            self.status_bar.configure(text="Debug mode enabled - logging to app.log")
+        else:
+            logger.info("Debug mode disabled")
+            self.status_bar.configure(text="Debug mode disabled")
+
+    def save_github_token(self):
+        """Save the GitHub personal access token."""
+        token = self.entry_github_token.get().strip()
+        config_manager.set_github_token(token)
+        
+        if token:
+            logger.info("GitHub token saved successfully")
+            self.status_bar.configure(text="GitHub token saved - API rate limit increased to 5,000/hour")
+            messagebox.showinfo("Token Saved", "GitHub token saved successfully!\nAPI rate limit increased to 5,000 requests/hour.")
+        else:
+            logger.info("GitHub token cleared")
+            self.status_bar.configure(text="GitHub token cleared - using unauthenticated API (60/hour)")
+            messagebox.showinfo("Token Cleared", "GitHub token cleared.\nUsing unauthenticated API (60 requests/hour).")
+
+    def clear_github_token(self):
+        """Clear the GitHub personal access token."""
+        self.entry_github_token.delete(0, tk.END)
+        config_manager.set_github_token("")
+        logger.info("GitHub token cleared")
+        self.status_bar.configure(text="GitHub token cleared - using unauthenticated API (60/hour)")
+        messagebox.showinfo("Token Cleared", "GitHub token cleared.\nUsing unauthenticated API (60 requests/hour).")
+
+    def show_help(self):
+        """Display help instructions in a popup window."""
+        help_text = """How to Use the Script Updater
+
+Adding a Script:
+1. Paste the full GitHub repository URL (e.g., https://github.com/user/repo).
+2. (Optional) Specify a folder path within the repository. If left blank, the whole repository is downloaded.
+3. Click "Browse" to choose where to save the script on your computer.
+4. Click "Add Script" and select a category for your script.
+
+Managing Scripts:
+• Check the box next to one or more scripts to enable the action buttons.
+• The application automatically checks for updates on startup. A green "Update Available" label will appear for scripts that can be updated.
+
+Action Buttons:
+• Update Selected: Downloads and installs the latest version of checked scripts. Previous versions are automatically archived.
+• GitHub: Opens the GitHub repository page for the selected script in your web browser (requires exactly one script selected).
+• Delete Selected: Removes the checked scripts from management and deletes their local files.
+• Manage Versions: View and restore previous versions of a script (requires exactly one script selected).
+
+Community Scripts:
+• Click the "Community Scripts" button to browse a curated list of scripts.
+• Check the ones you want and click "Add Selected to Managed" to download them.
+
+Search and Filter:
+• Use the "Filter scripts..." box to quickly find specific scripts in your managed list.
+
+Debug Mode:
+• Enable "Debug Mode" to create detailed logs in app.log for troubleshooting.
+• Disable it during normal use to avoid creating large log files.
+• Debug mode applies to all application functions.
+
+GitHub Token (Optional):
+• Add your GitHub Personal Access Token to increase API rate limits from 60 to 5,000 requests/hour.
+• Create a token at: https://github.com/settings/tokens (no special permissions needed).
+• Token format: ghp_xxxxxxxxxxxxxxxxxxxx
+• Click "Save Token" to store it securely in your settings.
+
+Version Management:
+• When you update a script, the old version is automatically saved in an "Older Versions" folder.
+• Select a single script and click "Manage Versions" to view and restore previous versions."""
+
+        # Create a new window for help
+        help_window = ctk.CTkToplevel(self)
+        help_window.title("Help - Script Updater")
+        help_window.geometry("600x500")
+        help_window.resizable(True, True)
+        
+        # Make it modal
+        help_window.transient(self)
+        help_window.grab_set()
+        
+        # Add text widget with proper wrapping
+        text_widget = ctk.CTkTextbox(help_window, wrap="word")
+        text_widget.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Insert the help text and make it read-only
+        text_widget.insert("1.0", help_text)
+        text_widget.configure(state="disabled")
+        
+        # Add close button
+        close_button = ctk.CTkButton(help_window, text="Close", command=help_window.destroy)
+        close_button.pack(pady=10)
+
+    def on_search_changed(self, event=None):
+        """Filter the managed scripts based on search text."""
+        search_text = self.search_entry.get().lower().strip()
+        self.refresh_scripts_display(filter_text=search_text)
+
+    def show_category_selection_dialog(self, repo_url, folder_path, local_path):
+        """Show a dialog to select category when adding a script."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Select Category")
+        dialog.geometry("400x200")
+        dialog.resizable(False, False)
+        
+        # Make it modal
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (400 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (200 // 2)
+        dialog.geometry(f"400x200+{x}+{y}")
+        
+        # Variables to store result
+        self.selected_category = None
+        self.dialog_result = False
+        
+        # Content frame
+        content_frame = ctk.CTkFrame(dialog)
+        content_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Label
+        label = ctk.CTkLabel(content_frame, text="Please select a category for this script:")
+        label.pack(pady=(0, 10))
+        
+        # Category dropdown
+        categories = ["Activities", "Class Rotations", "Programs", "Utilities"]
+        category_var = ctk.StringVar(value="Utilities")
+        category_dropdown = ctk.CTkOptionMenu(content_frame, variable=category_var, values=categories)
+        category_dropdown.pack(pady=10)
+        
+        # Buttons frame
+        buttons_frame = ctk.CTkFrame(content_frame)
+        buttons_frame.pack(pady=(10, 0))
+        
+        def on_confirm():
+            self.selected_category = category_var.get()
+            self.dialog_result = True
+            dialog.destroy()
+        
+        def on_cancel():
+            self.dialog_result = False
+            dialog.destroy()
+        
+        confirm_button = ctk.CTkButton(buttons_frame, text="Confirm", command=on_confirm)
+        confirm_button.pack(side="left", padx=(0, 5))
+        
+        cancel_button = ctk.CTkButton(buttons_frame, text="Cancel", command=on_cancel)
+        cancel_button.pack(side="left", padx=(5, 0))
+        
+        # Wait for dialog to close
+        self.wait_window(dialog)
+        
+        if self.dialog_result and self.selected_category:
+            # Proceed with adding the script
+            return self._perform_add_script(repo_url, folder_path, local_path, self.selected_category)
+        else:
+            self.status_bar.configure(text="Script addition cancelled.")
+            return False
+
+    def show_version_management_window(self, script_data):
+        """Show version management window for a selected script."""
+        script_path = script_data.get('local_path')
+        script_name = script_data.get('name', 'Unknown Script')
+        
+        if not script_path or not os.path.exists(script_path):
+            messagebox.showerror("Error", "Script path not found or invalid.")
+            return
+        
+        # Get available versions
+        available_versions = github_handler.get_available_versions(script_path)
+        
+        # Create version management window
+        version_window = ctk.CTkToplevel(self)
+        version_window.title(f"Manage Versions - {script_name}")
+        version_window.geometry("700x500")
+        version_window.resizable(True, True)
+        
+        # Make it modal
+        version_window.transient(self)
+        version_window.grab_set()
+        
+        # Main frame
+        main_frame = ctk.CTkFrame(version_window)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Title
+        title_label = ctk.CTkLabel(main_frame, text=f"Version History for: {script_name}", 
+                                  font=ctk.CTkFont(size=16, weight="bold"))
+        title_label.pack(pady=(0, 10))
+        
+        # Current version info
+        current_frame = ctk.CTkFrame(main_frame)
+        current_frame.pack(fill="x", pady=(0, 10))
+        
+        current_label = ctk.CTkLabel(current_frame, text="Current Version (Active)", 
+                                   font=ctk.CTkFont(weight="bold"))
+        current_label.pack(pady=5)
+        
+        if available_versions:
+            # Versions list
+            versions_frame = ctk.CTkFrame(main_frame)
+            versions_frame.pack(fill="both", expand=True, pady=(0, 10))
+            
+            versions_label = ctk.CTkLabel(versions_frame, text="Available Previous Versions:", 
+                                        font=ctk.CTkFont(weight="bold"))
+            versions_label.pack(pady=(5, 0))
+            
+            # Scrollable frame for versions
+            scrollable_frame = ctk.CTkScrollableFrame(versions_frame)
+            scrollable_frame.pack(fill="both", expand=True, padx=10, pady=10)
+            
+            selected_version = ctk.StringVar()
+            
+            for version in available_versions:
+                version_frame = ctk.CTkFrame(scrollable_frame)
+                version_frame.pack(fill="x", pady=2)
+                
+                # Parse version info for better display
+                display_text = version
+                if "_from-github" in version:
+                    display_text = version.replace("_from-github", " (GitHub Update)")
+                elif "_before-restore" in version:
+                    display_text = version.replace("_before-restore", " (Before Version Switch)")
+                
+                radio_button = ctk.CTkRadioButton(version_frame, text=display_text, 
+                                                variable=selected_version, value=version)
+                radio_button.pack(side="left", padx=10, pady=5)
+            
+            # Restore button
+            def restore_selected_version():
+                selected = selected_version.get()
+                if not selected:
+                    messagebox.showwarning("No Selection", "Please select a version to restore.")
+                    return
+                
+                if messagebox.askyesno("Confirm Restore", 
+                                     f"Are you sure you want to restore version '{selected}'?\n\n"
+                                     "This will replace the current version with the selected one. "
+                                     "The current version will be archived."):
+                    
+                    # Get current SHA if available
+                    current_sha = script_data.get('current_version_sha')
+                    success = github_handler.restore_version(script_path, selected, current_sha)
+                    if success:
+                        messagebox.showinfo("Success", f"Successfully restored version '{selected}'.")
+                        self.refresh_scripts_display()  # Refresh the main view
+                        version_window.destroy()
+                    else:
+                        messagebox.showerror("Error", f"Failed to restore version '{selected}'. Check the logs for details.")
+            
+            restore_button = ctk.CTkButton(main_frame, text="Restore Selected Version", 
+                                         command=restore_selected_version)
+            restore_button.pack(pady=5)
+        else:
+            # No versions available
+            no_versions_label = ctk.CTkLabel(main_frame, text="No previous versions available.", 
+                                           font=ctk.CTkFont(slant="italic"))
+            no_versions_label.pack(pady=20)
+        
+        # Close button
+        close_button = ctk.CTkButton(main_frame, text="Close", command=version_window.destroy)
+        close_button.pack(pady=10)
+
+    def manage_versions(self):
+        """Handle the Manage Versions button click."""
+        selected_scripts = []
+        for item in self.script_widgets:
+            if 'checkbox_var' in item and item['checkbox_var'].get() == 1:
+                selected_scripts.append(item['script_data'])
+        
+        if len(selected_scripts) != 1:
+            messagebox.showwarning("Selection Error", "Please select exactly one script to manage versions.")
+            return
+        
+        self.show_version_management_window(selected_scripts[0])
+    
+    def on_window_resize(self, event):
+        """Handle window resize events to save window size."""
+        # Only save if the event is for the main window (not child widgets)
+        if event.widget == self:
+            width = self.winfo_width()
+            height = self.winfo_height()
+            # Only save if the window has a reasonable size (avoid saving during initialization)
+            if width > 100 and height > 100:
+                config_manager.set_window_size(width, height)
 
 
 if __name__ == "__main__":
