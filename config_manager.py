@@ -119,3 +119,14 @@ def set_window_size(width, height):
     settings = load_settings()
     settings['window_size'] = {'width': width, 'height': height}
     save_settings(settings)
+
+def get_update_method():
+    """Gets the update method setting from app settings."""
+    settings = load_settings()
+    return settings.get('update_method', 'overwrite')
+
+def set_update_method(method):
+    """Sets the update method setting in app settings."""
+    settings = load_settings()
+    settings['update_method'] = method
+    save_settings(settings)

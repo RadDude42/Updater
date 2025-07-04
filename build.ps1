@@ -54,7 +54,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller installation failed" }
     
     Write-Host "Installing application dependencies..." -ForegroundColor White
-    python -m pip install --upgrade customtkinter requests pillow
+    python -m pip install --upgrade customtkinter requests pillow packaging
     if ($LASTEXITCODE -ne 0) { throw "Dependencies installation failed" }
     Write-Host ""
 } catch {

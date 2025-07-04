@@ -6,6 +6,8 @@ import os
 import queue
 import webbrowser
 import shutil
+import subprocess
+import requests
 
 # Helper function for PyInstaller
 def resource_path(relative_path):
@@ -26,6 +28,8 @@ import json
 from logger_setup import setup_logger, get_logger
 
 logger = get_logger(__name__)
+
+APP_VERSION = "1.1.0"
 
 ctk.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
 ctk.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
@@ -57,6 +61,9 @@ class ScriptUpdaterApp(ctk.CTk):
         debug_mode = config_manager.get_debug_mode()
         setup_logger(debug_mode)
         logger.info("Application started")
+
+        # Clean up after update
+        self.cleanup_after_update()
 
         # --- Input Frame ---
         self.input_frame = ctk.CTkFrame(self.main_frame)
@@ -132,6 +139,23 @@ class ScriptUpdaterApp(ctk.CTk):
         self.search_entry = ctk.CTkEntry(self.search_frame, placeholder_text="Type to filter...")
         self.search_entry.pack(side="left", padx=5, fill="x", expand=True)
         self.search_entry.bind("<KeyRelease>", self.on_search_changed)
+
+        # Add update method toggle
+        self.update_method_label = ctk.CTkLabel(self.search_frame, text="Update Method:")
+        self.update_method_label.pack(side="right", padx=(10, 5))
+        
+        # Get current update method
+        current_method = config_manager.get_update_method()
+        self.update_method_var = ctk.StringVar(value=current_method)
+        
+        self.update_method_menu = ctk.CTkOptionMenu(
+            self.search_frame, 
+            values=["overwrite", "differential"], 
+            variable=self.update_method_var,
+            command=self.on_update_method_changed,
+            width=120
+        )
+        self.update_method_menu.pack(side="right", padx=5)
 
         # NEW: Managed Scripts TabView
         # The command will call _on_managed_tab_change when a tab is selected
@@ -216,6 +240,96 @@ class ScriptUpdaterApp(ctk.CTk):
 
         # Start polling the queue for updates from the worker thread
         self.process_queue()
+
+        # Start the app update check
+        self.after(1000, self.start_app_update_check)
+
+    def cleanup_after_update(self):
+        """Deletes the old executable after an update."""
+        if not hasattr(sys, 'frozen'):
+            return # Only run when compiled
+            
+        exe_path = os.path.dirname(sys.executable)
+        old_exe_path = os.path.join(exe_path, "ScriptUpdaterApp.exe.old")
+        if os.path.exists(old_exe_path):
+            try:
+                os.remove(old_exe_path)
+                logger.info(f"Successfully removed old executable: {old_exe_path}")
+            except OSError as e:
+                logger.error(f"Failed to remove old executable: {e}")
+
+    def start_app_update_check(self):
+        """Starts the application update check in a separate thread."""
+        update_thread = threading.Thread(target=self.check_and_prompt_for_update, daemon=True)
+        update_thread.start()
+
+    def check_and_prompt_for_update(self):
+        """Checks for updates and prompts the user if a new version is found."""
+        logger.info("Checking for application updates...")
+        new_version, download_url = github_handler.check_for_app_update(APP_VERSION)
+        
+        if new_version and download_url:
+            self.status_bar.configure(text=f"New version {new_version} available!")
+            
+            user_choice = messagebox.askyesno(
+                "Update Available",
+                f"A new version ({new_version}) of the Script Updater is available.\n\n"
+                f"Would you like to download and install it now?"
+            )
+            
+            if user_choice:
+                self.apply_update(download_url)
+
+    def apply_update(self, download_url):
+        """Downloads and applies the application update."""
+        if not hasattr(sys, 'frozen'):
+            messagebox.showinfo("Update Info", "Auto-update is only available for the compiled application.")
+            return
+
+        try:
+            exe_dir = os.path.dirname(sys.executable)
+            new_exe_path = os.path.join(exe_dir, "ScriptUpdaterApp.new.exe")
+            old_exe_path = os.path.join(exe_dir, "ScriptUpdaterApp.exe.old")
+            current_exe_path = sys.executable
+            
+            self.status_bar.configure(text="Downloading update...")
+            self.update_idletasks()
+            
+            # Download the new executable
+            response = requests.get(download_url, stream=True)
+            response.raise_for_status()
+            with open(new_exe_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            self.status_bar.configure(text="Download complete. Preparing to update...")
+            
+            # Create the helper batch script
+            updater_script_path = os.path.join(exe_dir, "update.bat")
+            with open(updater_script_path, 'w') as f:
+                f.write(f'''@echo off
+echo Updating Script Updater...
+echo Waiting for application to close...
+timeout /t 2 /nobreak > nul
+if exist "{old_exe_path}" del "{old_exe_path}"
+echo Backing up current version...
+move /Y "{current_exe_path}" "{old_exe_path}"
+echo Installing new version...
+move /Y "{new_exe_path}" "{current_exe_path}"
+echo Relaunching application...
+start "" "{current_exe_path}"
+echo Cleaning up...
+del "%~f0"
+''')
+
+            # Launch the updater script and exit
+            subprocess.Popen(updater_script_path, creationflags=subprocess.DETACHED_PROCESS, shell=True)
+            self.destroy()
+
+        except Exception as e:
+            logger.error(f"Failed to apply update: {e}")
+            messagebox.showerror("Update Failed", f"An error occurred during the update process: {e}")
+            self.status_bar.configure(text="Update failed.")
 
     def _get_author_from_url(self, repo_url):
         if not repo_url or not isinstance(repo_url, str):
@@ -323,7 +437,7 @@ class ScriptUpdaterApp(ctk.CTk):
             self.status_bar.configure(text=f"Adding '{script_dir_name}' from {cleaned_repo_url}...")
             self.update_idletasks()
 
-            download_success, download_message, final_actual_local_path = github_handler.download_from_github(
+            download_success, download_message, final_actual_local_path = github_handler.perform_update(
                 cleaned_repo_url,
                 folder_path_cleaned,
                 final_local_path,
@@ -428,7 +542,7 @@ class ScriptUpdaterApp(ctk.CTk):
                     if not archive_success:
                         logger.warning(f"Failed to archive current version of {script_name} before update")
                     
-                    download_success, message, final_script_path = github_handler.download_from_github(
+                    download_success, message, final_script_path = github_handler.perform_update(
                         script_data_ref['repo_url'], 
                         script_data_ref['folder_path'], 
                         script_data_ref['local_path'], 
@@ -1103,17 +1217,23 @@ class ScriptUpdaterApp(ctk.CTk):
         self.status_bar.configure(text=final_status_text)
 
     def toggle_debug_mode(self):
-        """Toggle debug mode and reinitialize logger."""
+        """Toggle debug mode and update logger."""
         debug_enabled = self.debug_mode_var.get()
         config_manager.set_debug_mode(debug_enabled)
+        
+        # Reconfigure the logger with the new debug setting
         setup_logger(debug_enabled)
         
-        if debug_enabled:
-            logger.info("Debug mode enabled")
-            self.status_bar.configure(text="Debug mode enabled - logging to app.log")
-        else:
-            logger.info("Debug mode disabled")
-            self.status_bar.configure(text="Debug mode disabled")
+        status_text = "Debug mode enabled" if debug_enabled else "Debug mode disabled"
+        self.status_bar.configure(text=status_text)
+        logger.info(status_text)
+
+    def on_update_method_changed(self, selected_method):
+        """Handle update method change."""
+        config_manager.set_update_method(selected_method)
+        status_text = f"Update method changed to: {selected_method}"
+        self.status_bar.configure(text=status_text)
+        logger.info(status_text)
 
     def save_github_token(self):
         """Save the GitHub personal access token."""
@@ -1141,6 +1261,10 @@ class ScriptUpdaterApp(ctk.CTk):
         """Display help instructions in a popup window."""
         help_text = """How to Use the Script Updater
 
+Automatic Application Updates:
+• The application automatically checks for new versions of itself when you start it.
+• If a new version is found, you will be prompted to download and install it.
+
 Adding a Script:
 1. Paste the full GitHub repository URL (e.g., https://github.com/user/repo).
 2. (Optional) Specify a folder path within the repository. If left blank, the whole repository is downloaded.
@@ -1151,8 +1275,14 @@ Managing Scripts:
 • Check the box next to one or more scripts to enable the action buttons.
 • The application automatically checks for updates on startup. A green "Update Available" label will appear for scripts that can be updated.
 
+Update Methods:
+• Overwrite: Completely replaces all files with the new version (original behavior).
+• Differential: Only updates files that have actually changed, preserving unchanged files and any custom modifications.
+• Use the "Update Method" dropdown in the top-right to switch between methods.
+• Differential updates are faster and preserve user customizations, but overwrite ensures a clean installation.
+
 Action Buttons:
-• Update Selected: Downloads and installs the latest version of checked scripts. Previous versions are automatically archived.
+• Update Selected: Downloads and installs the latest version of checked scripts using your selected update method. Previous versions are automatically archived.
 • GitHub: Opens the GitHub repository page for the selected script in your web browser (requires exactly one script selected).
 • Delete Selected: Removes the checked scripts from management and deletes their local files.
 • Manage Versions: View and restore previous versions of a script (requires exactly one script selected).
@@ -1167,7 +1297,7 @@ Search and Filter:
 Debug Mode:
 • Enable "Debug Mode" to create detailed logs in app.log for troubleshooting.
 • Disable it during normal use to avoid creating large log files.
-• Debug mode applies to all application functions.
+• Debug mode applies to all application functions and shows detailed update progress.
 
 GitHub Token (Optional):
 • Add your GitHub Personal Access Token to increase API rate limits from 60 to 5,000 requests/hour.
@@ -1177,7 +1307,8 @@ GitHub Token (Optional):
 
 Version Management:
 • When you update a script, the old version is automatically saved in an "Older Versions" folder.
-• Select a single script and click "Manage Versions" to view and restore previous versions."""
+• Select a single script and click "Manage Versions" to view and restore previous versions.
+• The "Older Versions" folder is always preserved during updates regardless of update method."""
 
         # Create a new window for help
         help_window = ctk.CTkToplevel(self)

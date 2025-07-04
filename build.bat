@@ -52,7 +52,7 @@ if errorlevel 1 (
 )
 
 echo Installing application dependencies...
-python -m pip install --upgrade customtkinter requests pillow
+python -m pip install --upgrade customtkinter requests pillow packaging
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies
     pause

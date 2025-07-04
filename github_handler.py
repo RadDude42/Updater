@@ -7,8 +7,55 @@ from io import BytesIO
 import traceback
 from logger_setup import get_logger
 import config_manager
+import hashlib
+import tempfile
+from packaging.version import parse as parse_version
 
 logger = get_logger(__name__)
+
+def check_for_app_update(current_version):
+    """Checks for a new application release on GitHub."""
+    try:
+        repo_url = "https://api.github.com/repos/RadDude42/Updater/releases/latest"
+        response = requests.get(repo_url, headers=get_github_headers())
+        response.raise_for_status()
+        release_data = response.json()
+
+        if release_data.get("prerelease"):
+            logger.info("Latest release is a pre-release, skipping.")
+            return None, None
+
+        latest_version_str = release_data.get("tag_name", "0.0.0").lstrip('v')
+        current_v = parse_version(current_version)
+        latest_v = parse_version(latest_version_str)
+
+        if latest_v > current_v:
+            logger.info(f"New version found: {latest_v} (current: {current_v})")
+            for asset in release_data.get("assets", []):
+                if asset['name'].lower() == 'scriptupdaterapp.exe':
+                    return latest_v, asset['browser_download_url']
+            logger.warning("New release found, but 'ScriptUpdaterApp.exe' asset is missing.")
+            return None, None
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to check for app update: {e}")
+    except Exception as e:
+        logger.error(f"An error occurred during app update check: {e}")
+    
+    return None, None
+
+def calculate_sha256(file_path):
+    """Calculate SHA256 hash of a file."""
+    try:
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            # Read file in chunks to handle large files efficiently
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        return sha256_hash.hexdigest()
+    except Exception as e:
+        logger.error(f"Error calculating SHA256 for {file_path}: {e}")
+        return None
 
 def get_github_headers():
     """Get headers for GitHub API requests with optional authentication."""
@@ -233,7 +280,6 @@ def download_folder_from_github(repo_url, folder_path, local_save_path, branch=N
             older_versions_backup = None
             older_versions_path = os.path.join(local_save_path, "Older Versions")
             if os.path.exists(older_versions_path):
-                import tempfile
                 older_versions_backup = tempfile.mkdtemp()
                 shutil.copytree(older_versions_path, os.path.join(older_versions_backup, "Older Versions"))
                 logger.debug(f"Backed up Older Versions to: {older_versions_backup}")
@@ -513,6 +559,142 @@ def get_available_versions(script_path):
     except Exception as e:
         logger.error(f"Failed to get available versions: {e}")
         return []
+
+def differential_update_from_github(repo_url, folder_path, local_save_path, branch=None):
+    """Downloads and applies only changed files from a GitHub repository.
+    
+    Args:
+        repo_url (str): The URL of the GitHub repository
+        folder_path (str): The path to the folder within the repository
+        local_save_path (str): The local directory where files should be updated
+        branch (str): The branch to download from (defaults to main/master)
+        
+    Returns:
+        tuple: (bool, str, str) indicating (success_status, message, final_script_path)
+    """
+    try:
+        logger.info(f"Starting differential update for {repo_url}")
+        
+        # Preserve "Older Versions" folder if it exists
+        older_versions_backup = None
+        older_versions_path = os.path.join(local_save_path, "Older Versions")
+        if os.path.exists(older_versions_path):
+            older_versions_backup = tempfile.mkdtemp()
+            shutil.copytree(older_versions_path, os.path.join(older_versions_backup, "Older Versions"))
+            logger.debug(f"Backed up Older Versions to: {older_versions_backup}")
+        
+        # Download to temporary directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            logger.debug(f"Downloading to temporary directory: {temp_dir}")
+            
+            # Use existing download logic to get the repository content
+            success, message, temp_path = download_folder_from_github(repo_url, folder_path, temp_dir, branch)
+            
+            if not success:
+                return False, f"Failed to download repository for comparison: {message}", local_save_path
+            
+            # Ensure local directory exists
+            os.makedirs(local_save_path, exist_ok=True)
+            
+            # Restore "Older Versions" folder if it was backed up
+            if older_versions_backup and os.path.exists(os.path.join(older_versions_backup, "Older Versions")):
+                if os.path.exists(older_versions_path):
+                    shutil.rmtree(older_versions_path)
+                shutil.copytree(os.path.join(older_versions_backup, "Older Versions"), older_versions_path)
+                logger.debug(f"Restored Older Versions folder")
+            
+            # Compare and update files
+            files_updated = 0
+            files_added = 0
+            files_compared = 0
+            
+            # Walk through all files in the temporary download
+            for root, dirs, files in os.walk(temp_dir):
+                # Skip the "Older Versions" directory in comparisons
+                if "Older Versions" in dirs:
+                    dirs.remove("Older Versions")
+                
+                for file in files:
+                    temp_file_path = os.path.join(root, file)
+                    
+                    # Calculate relative path from temp_dir
+                    rel_path = os.path.relpath(temp_file_path, temp_dir)
+                    local_file_path = os.path.join(local_save_path, rel_path)
+                    
+                    files_compared += 1
+                    
+                    # Calculate hash of the new file
+                    new_file_hash = calculate_sha256(temp_file_path)
+                    if new_file_hash is None:
+                        logger.warning(f"Could not calculate hash for new file: {temp_file_path}")
+                        continue
+                    
+                    # Check if local file exists and compare hashes
+                    should_copy = True
+                    if os.path.exists(local_file_path):
+                        local_file_hash = calculate_sha256(local_file_path)
+                        if local_file_hash is not None and local_file_hash == new_file_hash:
+                            should_copy = False
+                            logger.debug(f"File unchanged, skipping: {rel_path}")
+                    
+                    if should_copy:
+                        # Ensure the directory exists
+                        local_dir = os.path.dirname(local_file_path)
+                        os.makedirs(local_dir, exist_ok=True)
+                        
+                        # Copy the file
+                        shutil.copy2(temp_file_path, local_file_path)
+                        
+                        if os.path.exists(local_file_path):
+                            files_updated += 1
+                            logger.debug(f"Updated file: {rel_path}")
+                        else:
+                            files_added += 1
+                            logger.debug(f"Added file: {rel_path}")
+            
+            # Clean up backup
+            if older_versions_backup:
+                shutil.rmtree(older_versions_backup)
+            
+            logger.info(f"Differential update completed. Files compared: {files_compared}, Updated: {files_updated}, Added: {files_added}")
+            
+            if files_updated > 0 or files_added > 0:
+                return True, f"Differential update completed successfully. {files_updated} files updated, {files_added} files added.", local_save_path
+            else:
+                return True, "No file changes detected. All files are already up to date.", local_save_path
+    
+    except Exception as e:
+        logger.error(f"An error occurred during differential update: {e}")
+        logger.debug(traceback.format_exc())
+        return False, f"An error occurred during differential update: {e}", local_save_path
+
+def perform_update(repo_url, folder_path, local_save_path, category, branch=None):
+    """Main update function that chooses between overwrite and differential update methods.
+    
+    Args:
+        repo_url (str): The URL of the GitHub repository
+        folder_path (str): The path to the folder within the repository
+        local_save_path (str): The local directory where files should be updated
+        category (str): The category of the script (Programs, Activities, etc.)
+        branch (str): The branch to download from (defaults to main/master)
+        
+    Returns:
+        tuple: (bool, str, str) indicating (success_status, message, final_script_path)
+    """
+    try:
+        update_method = config_manager.get_update_method()
+        logger.info(f"Using update method: {update_method}")
+        
+        if update_method == 'differential':
+            return differential_update_from_github(repo_url, folder_path, local_save_path, branch)
+        else:
+            # Default to overwrite method (original behavior)
+            return download_from_github(repo_url, folder_path, local_save_path, category, branch)
+    
+    except Exception as e:
+        logger.error(f"Error in perform_update: {e}")
+        # Fallback to original method in case of any configuration issues
+        return download_from_github(repo_url, folder_path, local_save_path, category, branch)
 
 if __name__ == '__main__':
     # Example Usage (for testing)

@@ -26,3 +26,9 @@ scratchpad.md
 .cursor/rules/804-scratchpad-system.mdc
 .cursor/rules/805-phase-documentation.mdc
 .cursorrules
+.cursor/lessons-learned.md
+.cursor/memories.md
+.cursor/project-requirements.md
+.cursorignore
+dist/ScriptUpdaterApp.exe
+app.log
