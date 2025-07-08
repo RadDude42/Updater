@@ -20,7 +20,7 @@
   {
     "category": "Activities",
     "displayText": "HordesDev: Does Infernal Hordes real good",
-    "repo_url": "https://github.com/Letrico/HordeDev",
+    "repo_url": "https://github.com/Letrico/HordeDev/tree/ZEWX-HORDE-OVERHAUL",
     "name_override": "HordeDev"
   },
   {
@@ -50,19 +50,31 @@
   {
     "category": "Utilities",
     "displayText": "Alfred: Your personal butler in Cerrigar",
-    "repo_url": "https://github.com/Leoc76101111/AlfredTheButler",
+    "repo_url": "https://github.com/Leoc76101111/AlfredTheButler/tree/main",
     "name_override": "AlfredTheButler"
   },
   {
     "category": "Utilities",
     "displayText": "LooteerV2: Picks up stuff real good",
-    "repo_url": "https://github.com/Letrico/LooteerV2",
+    "repo_url": "https://github.com/Letrico/LooteerV2/tree/master",
     "name_override": "LooteerV2"
+  },
+  {
+    "category": "Utilities",
+    "displayText": "Auto-Consumables: Uses elixirs and incense real good",
+    "repo_url": "https://github.com/RadDude42/Auto-Consumables",
+    "name_override": "Auto-Consumables"
   },
   {
     "category": "Programs",
     "displayText": "D4 Assistant - Helps with Masterworking, Enchanting and more",
     "repo_url": "https://github.com/RadDude42/diablo4-assistant_suite",
+    "name_override": "diablo4-assistant_suite"
+  },
+  {
+    "category": "Programs",
+    "displayText": "D4 Assistant.exe - Helps with Masterworking and Opening Boss Chest",
+    "repo_url": "https://github.com/magoogle/D4Assistant",
     "name_override": "diablo4-assistant_suite"
   },
   {
