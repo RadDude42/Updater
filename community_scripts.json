@@ -8,8 +8,14 @@
   {
     "category": "Activities",
     "displayText": "Helltides Chests + Maiden Farmer",
-    "repo_url": "https://github.com/icemancsa/HelltideChests_MaidenFarmerV2.0",
+    "repo_url": "https://github.com/icemancsa/HelltideChests_MaidenFarmerV2.0/tree/main",
     "name_override": "HelltideChests_MaidenFarmerV2.0"
+  },
+  {
+    "category": "Activities",
+    "displayText": "Helltide Revamped",
+    "repo_url": "https://github.com/Letrico/HelltideRevamped/tree/main",
+    "name_override": "HelltideRevamped"
   },
   {
     "category": "Activities",
@@ -32,20 +38,26 @@
   {
     "category": "Activities",
     "displayText": "BossTosser: Tosses bosses real good",
-    "repo_url": "https://github.com/Zewx1776/BossTosser",
+    "repo_url": "https://github.com/Zewx1776/BossTosser/tree/main",
     "name_override": "BossTosser"
   },
   {
     "category": "Class Rotations",
     "displayText": "Sorcerer: Salad Sorc",
-    "repo_url": "https://github.com/RadDude42/Sorc_Rota_salad",
+    "repo_url": "https://github.com/RadDude42/Sorc_Rota_salad/tree/main",
     "name_override": "Sorc_Rota_salad"
   },
   {
     "category": "Class Rotations",
     "displayText": "Rogue: DT Smoke Enhanced",
-    "repo_url": "https://github.com/Sm0oked/Rogue-DT-Smoke",
+    "repo_url": "https://github.com/Sm0oked/Rogue-DT-Smoke/tree/main",
     "name_override": "Rogue-DT-Smoke"
+  },
+  {
+    "category": "Class Rotations",
+    "displayText": "Rogue: Penetrating Shot Smoke Enhanced",
+    "repo_url": "https://github.com/Sm0oked/Rogue_PS_Smoke/tree/main",
+    "name_override": "Rogue-PS-Smoke"
   },
   {
     "category": "Utilities",
@@ -62,25 +74,25 @@
   {
     "category": "Utilities",
     "displayText": "Auto-Consumables: Uses elixirs and incense real good",
-    "repo_url": "https://github.com/RadDude42/Auto-Consumables",
+    "repo_url": "https://github.com/RadDude42/Auto-Consumables/tree/main",
     "name_override": "Auto-Consumables"
   },
   {
     "category": "Programs",
     "displayText": "D4 Assistant - Helps with Masterworking, Enchanting and more",
-    "repo_url": "https://github.com/RadDude42/diablo4-assistant_suite",
+    "repo_url": "https://github.com/RadDude42/diablo4-assistant_suite/tree/main",
     "name_override": "diablo4-assistant_suite"
   },
   {
     "category": "Programs",
     "displayText": "D4 Assistant.exe - Helps with Masterworking and Opening Boss Chest",
-    "repo_url": "https://github.com/magoogle/D4Assistant",
-    "name_override": "diablo4-assistant_suite"
+    "repo_url": "https://github.com/magoogle/D4Assistant/tree/main",
+    "name_override": "diablo4-assistant_suite_magoogle"
   },
   {
     "category": "Programs",
     "displayText": "Bossclicker - Used for Varshan, AdvancedScreenClicker.exe",
-    "repo_url": "https://github.com/ozyn-se/Bossclicker",
+    "repo_url": "https://github.com/ozyn-se/Bossclicker/tree/main",
     "name_override": "BossclickerVarshan"
   },
   {
@@ -92,7 +104,7 @@
   {
     "category": "Programs",
     "displayText": "Build-Scraper: Scrapes builds from Mobalytics for affix import into Alfred",
-    "repo_url": "https://github.com/RadDude42/Build-Scraper",
+    "repo_url": "https://github.com/RadDude42/Build-Scraper/tree/main",
     "name_override": "Build-Scraper"
   }
 ]
