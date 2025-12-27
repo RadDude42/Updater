@@ -119,6 +119,75 @@ def download_release_exe(repo_url, local_save_path):
     except Exception as e:
         return False, f"An error occurred during release download: {e}", None
 
+def download_release_zip(repo_url, local_save_path):
+    """Downloads and extracts .zip files from the latest release of a GitHub repository."""
+    try:
+        api_url = get_repo_api_url(repo_url)
+        releases_url = f"{api_url}/releases/latest"
+        response = requests.get(releases_url, headers=get_github_headers())
+        response.raise_for_status()
+        release_data = response.json()
+
+        zip_assets = [asset for asset in release_data.get('assets', []) if asset['name'].lower().endswith('.zip')]
+
+        if not zip_assets:
+            return False, "No .zip files found in the latest release.", None
+
+        if os.path.exists(local_save_path):
+            shutil.rmtree(local_save_path)
+        os.makedirs(local_save_path)
+
+        extracted_count = 0
+        for asset in zip_assets:
+            asset_url = asset['browser_download_url']
+            logger.info(f"Downloading and extracting release asset: {asset['name']}")
+
+            # Download to temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_file:
+                temp_zip_path = temp_file.name
+                with requests.get(asset_url, stream=True) as r:
+                    r.raise_for_status()
+                    for chunk in r.iter_content(chunk_size=8192):
+                        temp_file.write(chunk)
+
+            # Extract the ZIP file
+            try:
+                with ZipFile(temp_zip_path, 'r') as zip_ref:
+                    # Extract to a temporary directory first to avoid conflicts
+                    with tempfile.TemporaryDirectory() as temp_extract_dir:
+                        zip_ref.extractall(temp_extract_dir)
+
+                        # Move extracted files to final location
+                        for item in os.listdir(temp_extract_dir):
+                            src_path = os.path.join(temp_extract_dir, item)
+                            dest_path = os.path.join(local_save_path, item)
+
+                            if os.path.isdir(src_path):
+                                if os.path.exists(dest_path):
+                                    shutil.rmtree(dest_path)
+                                shutil.move(src_path, dest_path)
+                            else:
+                                shutil.move(src_path, dest_path)
+
+                    extracted_count += 1
+
+            finally:
+                # Clean up temp ZIP file
+                if os.path.exists(temp_zip_path):
+                    os.unlink(temp_zip_path)
+
+        if extracted_count > 0:
+            return True, f"Successfully downloaded and extracted {extracted_count} .zip file(s) from the latest release.", local_save_path
+        else:
+            return False, "Downloaded .zip files but failed to extract any of them.", None
+
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 404:
+            return False, "No releases found for this repository.", None
+        return False, f"Failed to fetch releases: {e}", None
+    except Exception as e:
+        return False, f"An error occurred during release ZIP download: {e}", None
+
 def download_repo_exes(repo_url, local_save_path):
     """Downloads all .exe files found in a GitHub repository's default branch."""
     try:
@@ -189,6 +258,104 @@ def download_repo_exes(repo_url, local_save_path):
         logger.debug(traceback.format_exc())
         return False, f"An error occurred while scanning repository for .exe files: {e}", None
 
+def download_repo_zips(repo_url, local_save_path):
+    """Downloads and extracts all .zip files found in a GitHub repository's default branch."""
+    try:
+        api_url = get_repo_api_url(repo_url)
+        repo_info = requests.get(api_url, headers=get_github_headers()).json()
+        default_branch = repo_info.get('default_branch', 'main')
+
+        trees_url = f"{api_url}/git/trees/{default_branch}?recursive=1"
+        logger.debug(f"Getting repo tree from: {trees_url}")
+        response = requests.get(trees_url, headers=get_github_headers())
+        response.raise_for_status()
+        tree_data = response.json()
+
+        # Extensive logging to debug file finding
+        logger.debug(f"Repo tree response status: {response.status_code}")
+        logger.debug(f"Repo tree truncated: {tree_data.get('truncated')}")
+        all_tree_items = tree_data.get('tree', [])
+        logger.debug(f"Total items in tree: {len(all_tree_items)}")
+
+        logger.debug("--- All Tree Items ---")
+        for item in all_tree_items:
+            logger.debug(f"Item: path={item.get('path')}, type={item.get('type')}, mode={item.get('mode')}")
+        logger.debug("--- End of Tree Items ---")
+
+        zip_files = [item for item in all_tree_items if item.get('path', '').lower().endswith('.zip') and item.get('type') == 'blob']
+        logger.debug(f"Found {len(zip_files)} .zip files after filtering.")
+
+        if not zip_files:
+            return False, "No .zip files found in the repository based on tree scan.", None
+
+        if os.path.exists(local_save_path):
+            shutil.rmtree(local_save_path)
+        os.makedirs(local_save_path)
+
+        extracted_count = 0
+        # Using contents API to get download URLs is more reliable
+        for zip_file in zip_files:
+            file_path = zip_file['path']
+            contents_url = f"{api_url}/contents/{file_path}?ref={default_branch}"
+            logger.debug(f"Getting contents for {file_path} from {contents_url}")
+
+            contents_response = requests.get(contents_url, headers=get_github_headers())
+            if contents_response.status_code != 200:
+                logger.warning(f"Failed to get contents for {file_path}. Status: {contents_response.status_code}. Skipping.")
+                continue
+
+            download_url = contents_response.json().get('download_url')
+
+            if not download_url:
+                logger.warning(f"No download_url found for {file_path}. Skipping.")
+                continue
+
+            logger.info(f"Downloading and extracting repo ZIP file: {file_path}")
+
+            # Download to temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_file:
+                temp_zip_path = temp_file.name
+                with requests.get(download_url, stream=True) as r:
+                    r.raise_for_status()
+                    for chunk in r.iter_content(chunk_size=8192):
+                        temp_file.write(chunk)
+
+            # Extract the ZIP file
+            try:
+                with ZipFile(temp_zip_path, 'r') as zip_ref:
+                    # Extract to a temporary directory first to avoid conflicts
+                    with tempfile.TemporaryDirectory() as temp_extract_dir:
+                        zip_ref.extractall(temp_extract_dir)
+
+                        # Move extracted files to final location
+                        for item in os.listdir(temp_extract_dir):
+                            src_path = os.path.join(temp_extract_dir, item)
+                            dest_path = os.path.join(local_save_path, item)
+
+                            if os.path.isdir(src_path):
+                                if os.path.exists(dest_path):
+                                    shutil.rmtree(dest_path)
+                                shutil.move(src_path, dest_path)
+                            else:
+                                shutil.move(src_path, dest_path)
+
+                    extracted_count += 1
+
+            finally:
+                # Clean up temp ZIP file
+                if os.path.exists(temp_zip_path):
+                    os.unlink(temp_zip_path)
+
+        if extracted_count > 0:
+            return True, f"Successfully downloaded and extracted {extracted_count} .zip file(s) from the repository.", local_save_path
+        else:
+            return False, "Found .zip files in repo data, but failed to download/extract any of them.", None
+
+    except Exception as e:
+        logger.error(f"An error occurred while scanning repository for .zip files: {e}")
+        logger.debug(traceback.format_exc())
+        return False, f"An error occurred while scanning repository for .zip files: {e}", None
+
 def determine_effective_branch(repo_url, branch_hint=None):
     """Determines the effective branch from a repo URL and an optional hint."""
     parsed_branch_from_url = None
@@ -211,12 +378,22 @@ def download_from_github(repo_url, folder_path, local_save_path, category, branc
         if success:
             return True, message, path
         
-        logger.info("No .exe in releases, scanning repository.")
+        logger.info("No .exe in releases, checking for .zip files in releases.")
+        success, message, path = download_release_zip(repo_url, local_save_path)
+        if success:
+            return True, message, path
+        
+        logger.info("No .exe or .zip in releases, scanning repository for .exe files.")
         success, message, path = download_repo_exes(repo_url, local_save_path)
         if success:
             return True, message, path
+        
+        logger.info("No .exe in repository, scanning repository for .zip files.")
+        success, message, path = download_repo_zips(repo_url, local_save_path)
+        if success:
+            return True, message, path
         else:
-            return False, "Could not find any .exe files in releases or repository.", None
+            return False, "Could not find any .exe or .zip files in releases or repository.", None
     else:
         # Fallback to original folder download logic for other categories
         return download_folder_from_github(repo_url, folder_path, local_save_path, branch)

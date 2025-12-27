@@ -1,26 +1,20 @@
 [
   {
     "category": "Activities",
-    "displayText": "SHelltide - Chests + Maiden Farming",
-    "repo_url": "https://github.com/SEmptyZero/SHelltide/tree/main",
-    "name_override": "SHelltide"
-  },
-  {
-    "category": "Activities",
-    "displayText": "Helltides Chests + Maiden Farmer",
-    "repo_url": "https://github.com/icemancsa/HelltideChests_MaidenFarmerV2.0/tree/main",
-    "name_override": "HelltideChests_MaidenFarmerV2.0"
-  },
-  {
-    "category": "Activities",
     "displayText": "Helltide Revamped",
     "repo_url": "https://github.com/Letrico/HelltideRevamped/tree/main",
     "name_override": "HelltideRevamped"
   },
+    {
+    "category": "Activities",
+    "displayText": "Helltide Duriel/Maiden Activator",
+    "repo_url": "https://github.com/Diobyte/SHellTide_DioFork/tree/main",
+    "name_override": "HelltideDurielMaidenActivator"
+  },
   {
     "category": "Activities",
     "displayText": "Piteer: Does pits real good",
-    "repo_url": "https://github.com/Zewx1776/piteertest/tree/Main",
+    "repo_url": "https://github.com/Leoc76101111/piteertester/tree/main",
     "name_override": "Piteer"
   },
   {
@@ -38,7 +32,7 @@
   {
     "category": "Activities",
     "displayText": "BossTosser: Tosses bosses real good",
-    "repo_url": "https://github.com/Zewx1776/BossTosser/tree/main",
+    "repo_url": "https://github.com/Leoc76101111/BossTosser/tree/main",
     "name_override": "BossTosser"
   },
   {
@@ -60,6 +54,18 @@
     "name_override": "Rogue-PS-Smoke"
   },
   {
+    "category": "Class Rotations",
+    "displayText": "Necromancer: Clean Version",
+    "repo_url": "https://github.com/Loki-The-Cursed/Necro---Clean-version/tree/main",
+    "name_override": "Necro-Clean-Version"
+  },
+  {
+    "category": "Class Rotations",
+    "displayText": "Paladin: Diobyte",
+    "repo_url": "https://github.com/Diobyte/paladin/tree/main",
+    "name_override": "Paladin-Diobyte"
+  },
+  {
     "category": "Utilities",
     "displayText": "Alfred: Your personal butler in Cerrigar",
     "repo_url": "https://github.com/Leoc76101111/AlfredTheButler/tree/main",
@@ -78,33 +84,27 @@
     "name_override": "Auto-Consumables"
   },
   {
-    "category": "Programs",
-    "displayText": "D4 Assistant - Helps with Masterworking, Enchanting and more",
-    "repo_url": "https://github.com/RadDude42/diablo4-assistant_suite/tree/main",
-    "name_override": "diablo4-assistant_suite"
+    "category": "Utilities",
+    "displayText": "BunnyUtils: Various utility",
+    "repo_url": "https://github.com/FlixzySus/BunnyUtils/tree/main",
+    "name_override": "BunnyUtils"
+  },
+  {
+    "category": "Utilities",
+    "displayText": "Belials Gateway: Walks to Belial and enables BossTosser real good",
+    "repo_url": "https://github.com/FlixzySus/BelialsGateway/tree/main",
+    "name_override": "BelialsGateway"
   },
   {
     "category": "Programs",
-    "displayText": "D4 Assistant.exe - Helps with Masterworking and Opening Boss Chest",
+    "displayText": "D4 Assistant.exe - Advanced toolset, can do basic things like masterworking and more advanced stuff like restarting the bot on DC and more",
     "repo_url": "https://github.com/magoogle/D4Assistant/tree/main",
     "name_override": "diablo4-assistant_suite_magoogle"
   },
   {
     "category": "Programs",
-    "displayText": "Bossclicker - Used for Varshan, AdvancedScreenClicker.exe",
-    "repo_url": "https://github.com/ozyn-se/Bossclicker/tree/main",
-    "name_override": "BossclickerVarshan"
-  },
-  {
-    "category": "Programs",
-    "displayText": "Bossclicker - Used for all bosses BUT Varshan, AdvancedScreenClicker.exe",
-    "repo_url": "https://github.com/Zewx1776/diablo4-assistant_suite/releases/tag/boss",
-    "name_override": "BossclickerALL"
-  },
-  {
-    "category": "Programs",
-    "displayText": "Build-Scraper: Scrapes builds from Mobalytics for affix import into Alfred",
-    "repo_url": "https://github.com/RadDude42/Build-Scraper/tree/main",
-    "name_override": "Build-Scraper"
+    "displayText": "D4 Assistant - Helps with Masterworking, Enchanting and more",
+    "repo_url": "https://github.com/RadDude42/diablo4-assistant_suite/tree/main",
+    "name_override": "diablo4-assistant_suite"
   }
 ]
