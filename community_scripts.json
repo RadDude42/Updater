@@ -1,21 +1,33 @@
 [
   {
     "category": "Activities",
-    "displayText": "Helltide Revamped",
-    "repo_url": "https://github.com/Letrico/HelltideRevamped/tree/main",
-    "name_override": "HelltideRevamped"
+    "displayText": "ArkhamAsylum: Does pits really good",
+    "repo_url": "https://github.com/Leoc76101111/ArkhamAsylum/tree/main",
+    "name_override": "ArkhamAsylum"
   },
-    {
+  {
     "category": "Activities",
-    "displayText": "Helltide Duriel/Maiden Activator",
+    "displayText": "Azmodan: Does Azmodan real good",
+    "repo_url": "https://github.com/Leoc76101111/azmodan_farmer/tree/main",
+    "name_override": "AzmodanFarm"
+  },
+  {
+    "category": "Activities",
+    "displayText": "BossTosser: Kills bosses real good",
+    "repo_url": "https://github.com/Leoc76101111/BossTosser/tree/main",
+    "name_override": "BossTosser"
+  },
+  {
+    "category": "Activities",
+    "displayText": "Helltide Duriel/Maiden Activator: Activates Duriel/Maiden ritual real good",
     "repo_url": "https://github.com/Diobyte/SHellTide_DioFork/tree/main",
     "name_override": "HelltideDurielMaidenActivator"
   },
   {
     "category": "Activities",
-    "displayText": "Piteer: Does pits real good",
-    "repo_url": "https://github.com/Leoc76101111/piteertester/tree/main",
-    "name_override": "Piteer"
+    "displayText": "Helltide Revamped: Does Helltides real good",
+    "repo_url": "https://github.com/Letrico/HelltideRevamped/tree/main",
+    "name_override": "HelltideRevamped"
   },
   {
     "category": "Activities",
@@ -25,33 +37,15 @@
   },
   {
     "category": "Activities",
-    "displayText": "Undercity: Does Kurast Undercity real good",
-    "repo_url": "https://github.com/TesXter/Undercity/tree/master",
-    "name_override": "Kurast_Undercity"
-  },
-  {
-    "category": "Activities",
-    "displayText": "BossTosser: Tosses bosses real good",
-    "repo_url": "https://github.com/Leoc76101111/BossTosser/tree/main",
-    "name_override": "BossTosser"
+    "displayText": "Wondercity: Does undercity real good",
+    "repo_url": "https://github.com/Leoc76101111/WonderCity/tree/main",
+    "name_override": "WonderCity"
   },
   {
     "category": "Class Rotations",
-    "displayText": "Sorcerer: Salad Sorc",
-    "repo_url": "https://github.com/RadDude42/Sorc_Rota_salad/tree/main",
-    "name_override": "Sorc_Rota_salad"
-  },
-  {
-    "category": "Class Rotations",
-    "displayText": "Rogue: DT Smoke Enhanced",
-    "repo_url": "https://github.com/Sm0oked/Rogue-DT-Smoke/tree/main",
-    "name_override": "Rogue-DT-Smoke"
-  },
-  {
-    "category": "Class Rotations",
-    "displayText": "Rogue: Penetrating Shot Smoke Enhanced",
-    "repo_url": "https://github.com/Sm0oked/Rogue_PS_Smoke/tree/main",
-    "name_override": "Rogue-PS-Smoke"
+    "displayText": "Barbarian: Karnage",
+    "repo_url": "https://github.com/Karnage8i2/Barb_Karnage/tree/main/rotation_barbarian",
+    "name_override": "Barbarian-Karnage"
   },
   {
     "category": "Class Rotations",
@@ -61,9 +55,51 @@
   },
   {
     "category": "Class Rotations",
+    "displayText": "Necromancer: Karnage",
+    "repo_url": "https://github.com/Karnage8i2/Necro/tree/main/rotation_necromancer",
+    "name_override": "Necromancer-Karnage"
+  },
+  {
+    "category": "Class Rotations",
     "displayText": "Paladin: Diobyte",
     "repo_url": "https://github.com/Diobyte/paladin/tree/main",
     "name_override": "Paladin-Diobyte"
+  },
+  {
+    "category": "Class Rotations",
+    "displayText": "Rogue: DT Smoke Enhanced",
+    "repo_url": "https://github.com/Sm0oked/Rogue-DT-Smoke/tree/main",
+    "name_override": "Rogue-DT-Smoke"
+  },
+  {
+    "category": "Class Rotations",
+    "displayText": "Rogue: Karnage",
+    "repo_url": "https://github.com/Karnage8i2/Rogue_Karnage/tree/main/Rogue_Karnage",
+    "name_override": "Rogue-Karnage"
+  },
+  {
+    "category": "Class Rotations",
+    "displayText": "Rogue: Penetrating Shot Smoke Enhanced",
+    "repo_url": "https://github.com/Sm0oked/Rogue_PS_Smoke/tree/main",
+    "name_override": "Rogue-PS-Smoke"
+  },
+  {
+    "category": "Class Rotations",
+    "displayText": "Sorcerer: Salad Sorc",
+    "repo_url": "https://github.com/RadDude42/Sorc_Rota_salad/tree/main",
+    "name_override": "Sorc_Rota_salad"
+  },
+  {
+    "category": "Programs",
+    "displayText": "D4 Assistant - Helps with Masterworking, Enchanting and more",
+    "repo_url": "https://github.com/RadDude42/diablo4-assistant_suite/tree/main",
+    "name_override": "diablo4-assistant_suite"
+  },
+  {
+    "category": "Programs",
+    "displayText": "D4 Assistant.exe - Advanced toolset, can do basic things like masterworking and more advanced stuff like restarting the bot on DC and more",
+    "repo_url": "https://github.com/magoogle/D4Assistant/tree/main",
+    "name_override": "diablo4-assistant_suite_magoogle"
   },
   {
     "category": "Utilities",
@@ -73,15 +109,21 @@
   },
   {
     "category": "Utilities",
-    "displayText": "LooteerV2: Picks up stuff real good",
-    "repo_url": "https://github.com/Letrico/LooteerV2/tree/master",
-    "name_override": "LooteerV2"
-  },
-  {
-    "category": "Utilities",
     "displayText": "Auto-Consumables: Uses elixirs and incense real good",
     "repo_url": "https://github.com/RadDude42/Auto-Consumables/tree/main",
     "name_override": "Auto-Consumables"
+  },
+  {
+    "category": "Utilities",
+    "displayText": "Batmobile: Does exploring real good",
+    "repo_url": "https://github.com/Leoc76101111/Batmobile/tree/main",
+    "name_override": "Batmobile"
+  },
+  {
+    "category": "Utilities",
+    "displayText": "Belials Gateway: Walks to Belial and enables BossTosser real good",
+    "repo_url": "https://github.com/FlixzySus/BelialsGateway/tree/main",
+    "name_override": "BelialsGateway"
   },
   {
     "category": "Utilities",
@@ -91,20 +133,8 @@
   },
   {
     "category": "Utilities",
-    "displayText": "Belials Gateway: Walks to Belial and enables BossTosser real good",
-    "repo_url": "https://github.com/FlixzySus/BelialsGateway/tree/main",
-    "name_override": "BelialsGateway"
-  },
-  {
-    "category": "Programs",
-    "displayText": "D4 Assistant.exe - Advanced toolset, can do basic things like masterworking and more advanced stuff like restarting the bot on DC and more",
-    "repo_url": "https://github.com/magoogle/D4Assistant/tree/main",
-    "name_override": "diablo4-assistant_suite_magoogle"
-  },
-  {
-    "category": "Programs",
-    "displayText": "D4 Assistant - Helps with Masterworking, Enchanting and more",
-    "repo_url": "https://github.com/RadDude42/diablo4-assistant_suite/tree/main",
-    "name_override": "diablo4-assistant_suite"
+    "displayText": "LooteerV2: Picks up stuff real good",
+    "repo_url": "https://github.com/Letrico/LooteerV2/tree/master",
+    "name_override": "LooteerV2"
   }
 ]
