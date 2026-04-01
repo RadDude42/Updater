@@ -37,6 +37,12 @@
   },
   {
     "category": "Activities",
+    "displayText": "Reaper: Does bosses and navigates to them real good",
+    "repo_url": "https://github.com/magoogle/Reaper/tree/main",
+    "name_override": "Reaper"
+  },
+  {
+    "category": "Activities",
     "displayText": "Wondercity: Does undercity real good",
     "repo_url": "https://github.com/Leoc76101111/WonderCity/tree/main",
     "name_override": "WonderCity"
@@ -59,12 +65,7 @@
     "repo_url": "https://github.com/Karnage8i2/Necro/tree/main/rotation_necromancer",
     "name_override": "Necromancer-Karnage"
   },
-  {
-    "category": "Class Rotations",
-    "displayText": "Paladin: Diobyte",
-    "repo_url": "https://github.com/Diobyte/paladin/tree/main",
-    "name_override": "Paladin-Diobyte"
-  },
+ 
   {
     "category": "Class Rotations",
     "displayText": "Rogue: DT Smoke Enhanced",
@@ -88,6 +89,12 @@
     "displayText": "Sorcerer: Salad Sorc",
     "repo_url": "https://github.com/RadDude42/Sorc_Rota_salad/tree/main",
     "name_override": "Sorc_Rota_salad"
+  },
+  {
+    "category": "Class Rotations",
+    "displayText": "Universal Rotation for all classes",
+    "repo_url": "https://github.com/magoogle/UniversalRotation/tree/main",
+    "name_override": "UniversalRotation"
   },
   {
     "category": "Programs",
@@ -133,8 +140,20 @@
   },
   {
     "category": "Utilities",
+    "displayText": "DropStats: Overlay to show various stats of drops",
+    "repo_url": "https://github.com/nikosild/Drop-Stats/tree/main",
+    "name_override": "DropStats"
+  },
+  {
+    "category": "Utilities",
     "displayText": "LooteerV2: Picks up stuff real good",
     "repo_url": "https://github.com/Letrico/LooteerV2/tree/master",
     "name_override": "LooteerV2"
+  },
+  {
+    "category": "Utilities",
+    "displayText": "Season Board Runner: Runs season boards real good (WIP)",
+    "repo_url": "https://github.com/magoogle/BoardRunner/tree/main",
+    "name_override": "SeasonBoardRunner"
   }
 ]

@@ -108,7 +108,8 @@ if (Test-Path $exePath) {
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "The executable is ready for distribution." -ForegroundColor Green
-    Write-Host "Location: $((Get-Location).Path)\dist\ScriptUpdaterApp.exe" -ForegroundColor White
+    $exeFullPath = Join-Path (Get-Location).Path "dist\ScriptUpdaterApp.exe"
+    Write-Host ("Location: " + $exeFullPath) -ForegroundColor White
     Write-Host ""
     Write-Host "You can now:" -ForegroundColor White
     Write-Host "- Test the executable by running it" -ForegroundColor White
@@ -118,7 +119,7 @@ if (Test-Path $exePath) {
 } else {
     Write-Host "ERROR: Executable not found after build" -ForegroundColor Red
     Write-Host "Build may have failed silently" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
+    Read-Host -Prompt "Press Enter to exit"
     exit 1
 }
 
@@ -133,4 +134,4 @@ foreach ($folder in $tempFoldersToClean) {
 Write-Host ""
 
 Write-Host "Press Enter to exit..." -ForegroundColor Yellow
-Read-Host 
+Read-Host -Prompt ''

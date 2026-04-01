@@ -17,9 +17,7 @@ app_settings.json
 managed_scripts.json
 *.md
 *.mdc
-userinput.py
-.cursorrules
-.cursorignore
+*.workspace
 dist/ScriptUpdaterApp.exe
 app.log
 testing/
