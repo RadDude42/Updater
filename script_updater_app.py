@@ -823,10 +823,21 @@ del "%~f0"
         """
         print("[INFO] Worker thread started: Performing startup update check.")
         
-        for script_data in scripts_data:
+        missing_scripts = []
+        scripts_to_check = list(scripts_data)  # iterate over copy to allow removal
+
+        for script_data in scripts_to_check:
             script_name = script_data.get('name', 'Unknown Script')
+
+            # Remove scripts with missing local path immediately
+            if not ScriptUpdaterApp.is_script_folder_present(script_data):
+                missing_scripts.append(script_name)
+                if script_data in scripts_data:
+                    scripts_data.remove(script_data)
+                continue
+
             try:
-                latest_remote_sha = github_handler.get_latest_commit_sha(script_data['repo_url'])
+                latest_remote_sha = github_handler.get_latest_commit_sha(script_data.get('repo_url'))
                 current_local_sha = script_data.get('current_version_sha')
                 script_data['last_checked'] = datetime.datetime.now().isoformat()
 
@@ -842,6 +853,16 @@ del "%~f0"
             except Exception as e:
                 script_data['update_status_indicator'] = 'check_failed'
                 print(f"[ERROR] Worker thread: An unexpected error occurred while checking {script_name}: {e}")
+
+        # Persist updated list (missing entries removed) as soon as possible
+        try:
+            config_manager.save_scripts_config(scripts_data)
+        except Exception as e:
+            print(f"[ERROR] Worker thread: Failed to save updated scripts config: {e}")
+
+        if missing_scripts:
+            removed_list = ", ".join(missing_scripts)
+            q.put(f"Removed {len(missing_scripts)} missing script(s) from management: {removed_list}")
 
         print("[INFO] Worker thread finished. Placing result in queue.")
         q.put(scripts_data)
@@ -1010,6 +1031,18 @@ del "%~f0"
                normalized_managed_folder_path == normalized_community_folder_path:
                 return True
         return False
+
+    @staticmethod
+    def is_script_folder_present(script_data):
+        """Checks if the script folder currently exists on disk."""
+        if not script_data:
+            return False
+
+        local_path = script_data.get('local_path')
+        if not local_path or not isinstance(local_path, str):
+            return False
+
+        return os.path.isdir(local_path)
 
     def populate_community_script_tabs(self):
         # Clear existing widgets from all tab frames and reset shared vars
