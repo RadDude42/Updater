@@ -1,3 +1,4 @@
+import re
 import requests
 import os
 import shutil
@@ -14,7 +15,9 @@ from packaging.version import parse as parse_version
 logger = get_logger(__name__)
 
 def check_for_app_update(current_version):
-    """Checks for a new application release on GitHub."""
+    """Checks for a new application release on GitHub.
+    Returns (latest_version, download_url, release_notes, status) where status is one of:
+    'update_available', 'up_to_date', 'prerelease', 'no_asset', 'error'."""
     try:
         repo_url = "https://api.github.com/repos/RadDude42/Updater/releases/latest"
         response = requests.get(repo_url, headers=get_github_headers())
@@ -23,26 +26,46 @@ def check_for_app_update(current_version):
 
         if release_data.get("prerelease"):
             logger.info("Latest release is a pre-release, skipping.")
-            return None, None
+            return None, None, None, "prerelease"
 
-        latest_version_str = release_data.get("tag_name", "0.0.0").lstrip('v')
+        tag = release_data.get("tag_name", "0.0.0")
+        m = re.search(r'(\d+(?:\.\d+)*)', tag)
+        latest_version_str = m.group(1) if m else "0.0.0"
         current_v = parse_version(current_version)
         latest_v = parse_version(latest_version_str)
 
         if latest_v > current_v:
             logger.info(f"New version found: {latest_v} (current: {current_v})")
+            release_notes = release_data.get("body", "No release notes available.")
             for asset in release_data.get("assets", []):
                 if asset['name'].lower() == 'scriptupdaterapp.exe':
-                    return latest_v, asset['browser_download_url']
+                    return latest_v, asset['browser_download_url'], release_notes, "update_available"
             logger.warning("New release found, but 'ScriptUpdaterApp.exe' asset is missing.")
-            return None, None
+            return None, None, None, "no_asset"
+
+        logger.info(f"App is up to date (current: {current_v}, latest: {latest_v})")
+        return None, None, None, "up_to_date"
 
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to check for app update: {e}")
     except Exception as e:
         logger.error(f"An error occurred during app update check: {e}")
-    
-    return None, None
+
+    return None, None, None, "error"
+
+
+def download_app_update(url, dest_path, progress_callback):
+    """Streams the new executable to dest_path, calling progress_callback(bytes_done, total_bytes)."""
+    response = requests.get(url, stream=True, headers=get_github_headers())
+    response.raise_for_status()
+    total = int(response.headers.get("Content-Length", 0))
+    downloaded = 0
+    with open(dest_path, 'wb') as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+                downloaded += len(chunk)
+                progress_callback(downloaded, total)
 
 def calculate_sha256(file_path):
     """Calculate SHA256 hash of a file."""
@@ -411,12 +434,23 @@ def download_folder_from_github(repo_url, folder_path, local_save_path, branch=N
         tuple: (bool, str, str) indicating (success_status, message, final_script_path).
     """
     try:
+        branch_explicitly_set = "/tree/" in repo_url or bool(branch)
         effective_branch = determine_effective_branch(repo_url, branch)
-        # The print for effective_branch is now inside determine_effective_branch
 
         api_url_base = repo_url.split('/tree/')[0] if "/tree/" in repo_url else repo_url
-        
         user, repo_name = api_url_base.strip('/').split('/')[-2:]
+
+        if not branch_explicitly_set:
+            try:
+                repo_info = requests.get(
+                    f"https://api.github.com/repos/{user}/{repo_name}",
+                    headers=get_github_headers()
+                ).json()
+                effective_branch = repo_info.get('default_branch', effective_branch)
+                logger.debug(f"Resolved default branch from API: {effective_branch}")
+            except Exception as e:
+                logger.warning(f"Could not resolve default branch from API, using '{effective_branch}': {e}")
+
         archive_url = f"https://api.github.com/repos/{user}/{repo_name}/zipball/{effective_branch}"
 
         zip_response = requests.get(archive_url, headers=get_github_headers(), stream=True)
@@ -530,13 +564,26 @@ def get_latest_commit_sha(repo_url, branch=None):
         raise ValueError("Invalid GitHub repository URL format.")
     user = parts[3]
     repo_name = parts[4].split('/tree/')[0] # Ensure repo_name is clean if URL had /tree/
-    
+
+    branch_explicitly_set = "/tree/" in repo_url or bool(branch)
     effective_branch = determine_effective_branch(repo_url, branch)
-    # The print for effective_branch is now inside determine_effective_branch
 
     api_url = f"https://api.github.com/repos/{user}/{repo_name}/commits/{effective_branch}"
     try:
         response = requests.get(api_url, headers=get_github_headers())
+        # 422 means the branch doesn't exist; resolve the real default branch and retry once
+        if response.status_code == 422 and not branch_explicitly_set:
+            try:
+                repo_info = requests.get(
+                    f"https://api.github.com/repos/{user}/{repo_name}",
+                    headers=get_github_headers()
+                )
+                repo_info.raise_for_status()
+                effective_branch = repo_info.json().get('default_branch', effective_branch)
+                api_url = f"https://api.github.com/repos/{user}/{repo_name}/commits/{effective_branch}"
+                response = requests.get(api_url, headers=get_github_headers())
+            except Exception as e:
+                logger.warning(f"Could not resolve default branch for SHA lookup: {e}")
         response.raise_for_status()
         return response.json()['sha']
     except requests.exceptions.RequestException as e:

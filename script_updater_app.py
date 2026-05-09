@@ -7,7 +7,6 @@ import queue
 import webbrowser
 import shutil
 import subprocess
-import requests
 
 # Helper function for PyInstaller
 def resource_path(relative_path):
@@ -29,10 +28,144 @@ from logger_setup import setup_logger, get_logger
 
 logger = get_logger(__name__)
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "2.0.0"
 
 ctk.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
 ctk.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
+
+
+class AppUpdateDialog(ctk.CTkToplevel):
+    """Modal dialog shown when a new app version is available."""
+
+    def __init__(self, parent, new_version, release_notes, download_url):
+        super().__init__(parent)
+        self._parent = parent
+        self._download_url = download_url
+        self._new_version = new_version
+        self._new_exe_path = None
+
+        self.title("Update Available")
+        self.geometry("520x420")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+        self.focus_set()
+        self.lift()
+        self.attributes('-topmost', True)
+        self.after(100, lambda: self.attributes('-topmost', False))
+
+        ctk.CTkLabel(
+            self,
+            text=f"Version {new_version} is available!",
+            font=ctk.CTkFont(size=16, weight="bold"),
+        ).pack(pady=(15, 2), padx=20)
+        ctk.CTkLabel(
+            self, text=f"You are running version {APP_VERSION}."
+        ).pack(pady=(0, 8), padx=20)
+
+        notes_box = ctk.CTkTextbox(self, width=480, height=190, wrap="word")
+        notes_box.pack(pady=5, padx=20)
+        notes_box.insert("1.0", release_notes or "No release notes available.")
+        notes_box.configure(state="disabled")
+
+        self._status_label = ctk.CTkLabel(self, text="")
+        self._status_label.pack(pady=(6, 0), padx=20)
+
+        self._progress_bar = ctk.CTkProgressBar(self, width=480)
+        self._progress_bar.set(0)
+        self._progress_bar.pack(pady=(4, 8), padx=20)
+        self._progress_bar.pack_forget()
+
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(pady=(0, 15))
+        self._update_btn = ctk.CTkButton(
+            btn_frame, text="Update Now", command=self._start_download
+        )
+        self._update_btn.pack(side="left", padx=10)
+        self._skip_btn = ctk.CTkButton(
+            btn_frame, text="Skip", fg_color="gray", hover_color="darkgray",
+            command=self.destroy,
+        )
+        self._skip_btn.pack(side="left", padx=10)
+
+    def _start_download(self):
+        if not hasattr(sys, 'frozen'):
+            messagebox.showinfo(
+                "Update Info",
+                "Auto-update is only available for the compiled application.",
+                parent=self,
+            )
+            return
+
+        self._update_btn.configure(state="disabled")
+        self._skip_btn.configure(state="disabled")
+        self._status_label.configure(text="Starting download...")
+        self._progress_bar.set(0)
+        self._progress_bar.pack(pady=(4, 8), padx=20)
+
+        exe_dir = os.path.dirname(sys.executable)
+        self._new_exe_path = os.path.join(exe_dir, "ScriptUpdaterApp.new.exe")
+
+        threading.Thread(target=self._download_worker, daemon=True).start()
+
+    def _download_worker(self):
+        try:
+            github_handler.download_app_update(
+                self._download_url,
+                self._new_exe_path,
+                lambda done, total: self.after(0, self._update_progress, done, total),
+            )
+            self.after(0, self._on_download_complete)
+        except Exception as e:
+            logger.error(f"App update download failed: {e}")
+            self.after(0, self._on_download_error, str(e))
+
+    def _update_progress(self, done, total):
+        if total > 0:
+            pct = done / total
+            self._progress_bar.set(pct)
+            self._status_label.configure(text=f"Downloading... {int(pct * 100)}%")
+        else:
+            self._status_label.configure(text=f"Downloading... {done // 1024} KB")
+
+    def _on_download_complete(self):
+        self._status_label.configure(text="Download complete. Installing...")
+        self._progress_bar.set(1.0)
+        try:
+            exe_dir = os.path.dirname(sys.executable)
+            old_exe_path = os.path.join(exe_dir, "ScriptUpdaterApp.exe.old")
+            current_exe_path = sys.executable
+            updater_script_path = os.path.join(exe_dir, "update.bat")
+
+            with open(updater_script_path, 'w') as f:
+                f.write(
+                    f'@echo off\n'
+                    f'echo Updating Script Updater...\n'
+                    f'timeout /t 2 /nobreak > nul\n'
+                    f'if exist "{old_exe_path}" del "{old_exe_path}"\n'
+                    f'move /Y "{current_exe_path}" "{old_exe_path}"\n'
+                    f'move /Y "{self._new_exe_path}" "{current_exe_path}"\n'
+                    f'start "" "{current_exe_path}"\n'
+                    f'del "%~f0"\n'
+                )
+
+            subprocess.Popen(
+                updater_script_path,
+                creationflags=subprocess.DETACHED_PROCESS,
+                shell=True,
+            )
+            self._parent.destroy()
+        except Exception as e:
+            logger.error(f"Failed to apply update: {e}")
+            self._on_download_error(str(e))
+
+    def _on_download_error(self, message):
+        self._progress_bar.pack_forget()
+        self._status_label.configure(text="Update failed.")
+        self._update_btn.configure(state="normal")
+        self._skip_btn.configure(state="normal")
+        messagebox.showerror("Update Failed", f"An error occurred: {message}", parent=self)
+
 
 class ScriptUpdaterApp(ctk.CTk):
     def __init__(self):
@@ -260,76 +393,30 @@ class ScriptUpdaterApp(ctk.CTk):
 
     def start_app_update_check(self):
         """Starts the application update check in a separate thread."""
-        update_thread = threading.Thread(target=self.check_and_prompt_for_update, daemon=True)
-        update_thread.start()
+        self.status_bar.configure(text="Checking for app updates...")
+        threading.Thread(target=self.check_and_prompt_for_update, daemon=True).start()
 
     def check_and_prompt_for_update(self):
-        """Checks for updates and prompts the user if a new version is found."""
+        """Runs on a background thread; schedules the update dialog on the main thread if needed."""
         logger.info("Checking for application updates...")
-        new_version, download_url = github_handler.check_for_app_update(APP_VERSION)
-        
-        if new_version and download_url:
-            self.status_bar.configure(text=f"New version {new_version} available!")
-            
-            user_choice = messagebox.askyesno(
-                "Update Available",
-                f"A new version ({new_version}) of the Script Updater is available.\n\n"
-                f"Would you like to download and install it now?"
-            )
-            
-            if user_choice:
-                self.apply_update(download_url)
+        new_version, download_url, release_notes, status = github_handler.check_for_app_update(APP_VERSION)
+        if status == "update_available":
+            self.after(0, self._show_update_dialog, new_version, download_url, release_notes)
+        elif status == "prerelease":
+            self.after(0, self.status_bar.configure,
+                       {"text": "Latest release is a pre-release — no update applied."})
+        elif status == "no_asset":
+            self.after(0, self.status_bar.configure,
+                       {"text": "Update found but installer asset missing on release."})
+        elif status == "error":
+            self.after(0, self.status_bar.configure,
+                       {"text": "Update check failed — check connection or enable debug mode."})
+        else:
+            self.after(0, self.status_bar.configure, {"text": "Ready"})
 
-    def apply_update(self, download_url):
-        """Downloads and applies the application update."""
-        if not hasattr(sys, 'frozen'):
-            messagebox.showinfo("Update Info", "Auto-update is only available for the compiled application.")
-            return
-
-        try:
-            exe_dir = os.path.dirname(sys.executable)
-            new_exe_path = os.path.join(exe_dir, "ScriptUpdaterApp.new.exe")
-            old_exe_path = os.path.join(exe_dir, "ScriptUpdaterApp.exe.old")
-            current_exe_path = sys.executable
-            
-            self.status_bar.configure(text="Downloading update...")
-            self.update_idletasks()
-            
-            # Download the new executable
-            response = requests.get(download_url, stream=True)
-            response.raise_for_status()
-            with open(new_exe_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
-            self.status_bar.configure(text="Download complete. Preparing to update...")
-            
-            # Create the helper batch script
-            updater_script_path = os.path.join(exe_dir, "update.bat")
-            with open(updater_script_path, 'w') as f:
-                f.write(f'''@echo off
-echo Updating Script Updater...
-echo Waiting for application to close...
-timeout /t 2 /nobreak > nul
-if exist "{old_exe_path}" del "{old_exe_path}"
-echo Backing up current version...
-move /Y "{current_exe_path}" "{old_exe_path}"
-echo Installing new version...
-move /Y "{new_exe_path}" "{current_exe_path}"
-echo Relaunching application...
-start "" "{current_exe_path}"
-echo Cleaning up...
-del "%~f0"
-''')
-
-            # Launch the updater script and exit
-            subprocess.Popen(updater_script_path, creationflags=subprocess.DETACHED_PROCESS, shell=True)
-            self.destroy()
-
-        except Exception as e:
-            logger.error(f"Failed to apply update: {e}")
-            messagebox.showerror("Update Failed", f"An error occurred during the update process: {e}")
-            self.status_bar.configure(text="Update failed.")
+    def _show_update_dialog(self, new_version, download_url, release_notes):
+        self.status_bar.configure(text=f"New version {new_version} available!")
+        AppUpdateDialog(self, new_version, release_notes, download_url)
 
     def _get_author_from_url(self, repo_url):
         if not repo_url or not isinstance(repo_url, str):
@@ -352,6 +439,57 @@ del "%~f0"
         except Exception as e:
             print(f"Error parsing author from URL '{repo_url}': {e}")
             return "Error"
+
+    def _normalize_repo_url(self, repo_url):
+        """Normalize GitHub URL for consistent comparison."""
+        if not repo_url or not isinstance(repo_url, str):
+            return ""
+
+        normalized = repo_url.strip().rstrip('/')
+
+        # Convert SSH format to HTTPS for compare
+        if normalized.startswith("git@github.com:"):
+            normalized = "https://github.com/" + normalized.split(":", 1)[1]
+
+        # Strip out /tree/<branch>/... when present
+        tree_index = normalized.lower().find("/tree/")
+        if tree_index != -1:
+            normalized = normalized[:tree_index]
+
+        # Strip out /blob/<branch>/... as a safety measure
+        blob_index = normalized.lower().find("/blob/")
+        if blob_index != -1:
+            normalized = normalized[:blob_index]
+
+        return normalized.lower()
+
+    def _extract_folder_path_from_repo_url(self, repo_url):
+        """Get path part if repo_url includes /tree/<branch>/<path>."""
+        if not repo_url or not isinstance(repo_url, str) or "/tree/" not in repo_url:
+            return ""
+
+        parts = repo_url.split('/tree/', 1)
+        if len(parts) < 2:
+            return ""
+
+        after_tree = parts[1]
+        path_components = after_tree.split('/')
+
+        # If only branch is present, no folder path
+        if len(path_components) <= 1:
+            return ""
+
+        folder_path = "/".join(path_components[1:]).strip('/\\')
+        return folder_path.lower()
+
+    def _normalize_folder_path(self, folder_path, repo_url=None):
+        """Normalize folder path to canonical form for comparison."""
+        if folder_path and isinstance(folder_path, str):
+            return folder_path.strip().strip('/\\').lower()
+
+        # Attempt to infer from repo_url if it uses /tree/<branch>/<path>
+        inferred = self._extract_folder_path_from_repo_url(repo_url)
+        return inferred
 
     def browse_local_path(self):
         directory = filedialog.askdirectory()
@@ -1018,18 +1156,24 @@ del "%~f0"
 
     def _is_script_managed(self, community_repo_url, community_folder_path):
         """Checks if a community script (identified by repo_url and folder_path) is already managed."""
-        # Normalize folder_path for comparison (treat None and empty string as same for root)
-        normalized_community_folder_path = community_folder_path if community_folder_path else ""
+        normalized_community_repo_url = self._normalize_repo_url(community_repo_url)
+        normalized_community_folder = self._normalize_folder_path(community_folder_path, community_repo_url)
 
         for managed_script in self.scripts_data:
             managed_repo_url = managed_script.get('repo_url')
             managed_folder_path = managed_script.get('folder_path')
-            # Normalize folder_path from managed_script as well
-            normalized_managed_folder_path = managed_folder_path if managed_folder_path else ""
 
-            if managed_repo_url == community_repo_url and \
-               normalized_managed_folder_path == normalized_community_folder_path:
+            normalized_managed_repo_url = self._normalize_repo_url(managed_repo_url)
+            normalized_managed_folder = self._normalize_folder_path(managed_folder_path, managed_repo_url)
+
+            if normalized_managed_repo_url == normalized_community_repo_url and \
+               normalized_managed_folder == normalized_community_folder:
                 return True
+
+            # Fallback: if display name / script name matches, treat as managed too
+            if managed_script.get('name') and managed_script.get('name').lower() == (community_folder_path or '').strip('/\\').lower():
+                return True
+
         return False
 
     @staticmethod
@@ -1157,19 +1301,26 @@ del "%~f0"
             messagebox.showinfo("No Scripts", "No community scripts loaded.")
             return
 
+        skipped_already_managed = 0
+
         # Identify selected and unmanaged scripts
         for script_info_item in self.community_scripts_data:
             repo_url = script_info_item.get('repo_url')
             folder_path = script_info_item.get('folder_path', '')
             script_key = (repo_url, folder_path)
-            
+
             shared_var = self.community_script_checkbox_vars.get(script_key)
             if shared_var and shared_var.get() == 1: # If checkbox is selected
-                if not self._is_script_managed(repo_url, folder_path): # And script is not already managed
-                    scripts_to_process.append({'script_data': script_info_item, 'var': shared_var})
-        
+                if self._is_script_managed(repo_url, folder_path):
+                    skipped_already_managed += 1
+                    continue
+                scripts_to_process.append({'script_data': script_info_item, 'var': shared_var})
+
         if not scripts_to_process:
-            messagebox.showinfo("No Actionable Selection", "Please select one or more new community scripts to add.\n(Note: Already added scripts or those with issues cannot be re-added this way.)")
+            if skipped_already_managed > 0:
+                messagebox.showinfo("No Actionable Selection", f"All selected scripts are already managed ({skipped_already_managed}).")
+            else:
+                messagebox.showinfo("No Actionable Selection", "Please select one or more new community scripts to add.\n(Note: Already added scripts or those with issues cannot be re-added this way.)")
             return
 
         local_save_dir = self.entry_local_path.get().strip()
