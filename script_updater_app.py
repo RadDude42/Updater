@@ -28,7 +28,7 @@ from logger_setup import setup_logger, get_logger
 
 logger = get_logger(__name__)
 
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.1.1"
 
 ctk.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
 ctk.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
