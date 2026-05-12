@@ -36,6 +36,12 @@
     "name_override": "UniversalRotation"
   },
   {
+    "category": "Class Rotations",
+    "displayText": "Warlock: Does warlock real good",
+    "repo_url": "https://github.com/Scmurd/Scmurd-Warlock/tree/main",
+    "name_override": "ScmurdWarlock"
+  },
+  {
     "category": "Programs",
     "displayText": "D4 Assistant.exe - Advanced toolset, can do basic things like masterworking and more advanced stuff like restarting the bot on DC and more",
     "repo_url": "https://github.com/magoogle/D4Assistant/tree/main",
