@@ -28,7 +28,7 @@ from logger_setup import setup_logger, get_logger
 
 logger = get_logger(__name__)
 
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
 
 ctk.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
 ctk.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
@@ -562,12 +562,16 @@ class ScriptUpdaterApp(ctk.CTk):
             author_name = self._get_author_from_url(cleaned_repo_url)
             script_name = script_dir_name
 
-            if category == "Programs":
+            if github_handler.is_multi_folder_repo(cleaned_repo_url):
+                final_local_path = local_path  # subfolders land here directly — no wrapper dir
+            elif category == "Programs":
                 final_local_path = os.path.join(local_path, "Programs", script_name)
             else:
                 final_local_path = os.path.join(local_path, script_name)
 
-            if os.path.exists(final_local_path):
+            # Skip the "already exists" prompt for multi-folder repos — the parent dir
+            # is expected to exist; individual subdirs are wiped separately on download.
+            if not github_handler.is_multi_folder_repo(cleaned_repo_url) and os.path.exists(final_local_path):
                 if not messagebox.askyesno("Directory Exists", f"The target directory '{final_local_path}' already exists. Overwrite?"):
                     self.status_bar.configure(text=f"Skipped adding script to existing directory: {script_dir_name}")
                     return False
@@ -601,6 +605,14 @@ class ScriptUpdaterApp(ctk.CTk):
                     "last_checked": datetime.datetime.now().isoformat(),
                     "status": determined_status
                 }
+
+                prefix = github_handler.get_multi_folder_prefix(cleaned_repo_url)
+                if prefix:
+                    script_info['subfolders'] = [
+                        e for e in os.listdir(final_actual_local_path)
+                        if os.path.isdir(os.path.join(final_actual_local_path, e))
+                        and e.lower().startswith(prefix.lower())
+                    ]
 
                 config_manager.add_script_to_config(script_info)
                 self.scripts_data = [s for s in self.scripts_data if s.get('name') != script_dir_name]
@@ -674,25 +686,41 @@ class ScriptUpdaterApp(ctk.CTk):
                     self.status_bar.configure(text=f"Update available for {script_name}. Downloading...")
                     self.update_idletasks()
                     
-                    # Archive current version before updating
-                    current_sha_for_archive = current_local_sha if current_local_sha else "unknown"
-                    archive_success = github_handler.archive_current_version(script_data_ref['local_path'], current_sha_for_archive)
-                    if not archive_success:
-                        logger.warning(f"Failed to archive current version of {script_name} before update")
-                    
+                    # Archive current version before updating (skipped for multi-folder repos
+                    # because local_path is the parent scripts dir — archiving it would snapshot
+                    # the entire folder, not just this script's content).
+                    is_mf = github_handler.is_multi_folder_repo(script_data_ref['repo_url'])
+                    if not is_mf:
+                        current_sha_for_archive = current_local_sha if current_local_sha else "unknown"
+                        archive_success = github_handler.archive_current_version(script_data_ref['local_path'], current_sha_for_archive)
+                        if not archive_success:
+                            logger.warning(f"Failed to archive current version of {script_name} before update")
+
                     download_success, message, final_script_path = github_handler.perform_update(
-                        script_data_ref['repo_url'], 
-                        script_data_ref['folder_path'], 
-                        script_data_ref['local_path'], 
-                        script_data_ref['category'], 
+                        script_data_ref['repo_url'],
+                        script_data_ref['folder_path'],
+                        script_data_ref['local_path'],
+                        script_data_ref['category'],
                         branch=None
                     )
 
                     if download_success:
                         script_data_ref['current_version_sha'] = latest_remote_sha
-                        script_data_ref['latest_version_sha'] = latest_remote_sha # Ensure latest_version_sha is also updated
-                        script_data_ref['local_path'] = final_script_path # Update path if restructuring changed it
-                        script_data_ref['name'] = os.path.basename(final_script_path) if final_script_path else script_name # Update name based on final path
+                        script_data_ref['latest_version_sha'] = latest_remote_sha
+                        if not is_mf:
+                            # For multi-folder repos local_path is the parent dir and
+                            # basename(final_script_path) would give the wrong name.
+                            script_data_ref['local_path'] = final_script_path
+                            script_data_ref['name'] = os.path.basename(final_script_path) if final_script_path else script_name
+                        else:
+                            mf_prefix = github_handler.get_multi_folder_prefix(script_data_ref['repo_url'])
+                            if mf_prefix:
+                                lp = script_data_ref['local_path']
+                                script_data_ref['subfolders'] = [
+                                    e for e in os.listdir(lp)
+                                    if os.path.isdir(os.path.join(lp, e))
+                                    and e.lower().startswith(mf_prefix.lower())
+                                ]
                         script_data_ref['status'] = "Up to date"  # Set status to Up to date
                         script_data_ref['update_status_indicator'] = 'uptodate' # Sync indicator
                         updated_count += 1
@@ -831,6 +859,8 @@ class ScriptUpdaterApp(ctk.CTk):
             status_text = "✅ Up to date"
         elif status_indicator == 'check_failed':
             status_text = "⚠️ Check Failed"
+        elif status_indicator == 'folders_missing':
+            status_text = "📂 Folder(s) Missing"
         else: # Fallback logic if update_status_indicator is not one of the expected values
             if initial_status == 'Up to date': # Check initial_status as well
                 status_text = f"✅ {initial_status}"
@@ -967,12 +997,28 @@ class ScriptUpdaterApp(ctk.CTk):
         for script_data in scripts_to_check:
             script_name = script_data.get('name', 'Unknown Script')
 
-            # Remove scripts with missing local path immediately
+            # Remove scripts with missing local path — but never auto-remove multi-folder repos
             if not ScriptUpdaterApp.is_script_folder_present(script_data):
-                missing_scripts.append(script_name)
-                if script_data in scripts_data:
-                    scripts_data.remove(script_data)
-                continue
+                if github_handler.is_multi_folder_repo(script_data.get('repo_url', '')):
+                    script_data['status'] = 'Local path missing — update to restore'
+                    script_data['update_status_indicator'] = 'folders_missing'
+                    script_data['current_version_sha'] = ''
+                    continue
+                else:
+                    missing_scripts.append(script_name)
+                    if script_data in scripts_data:
+                        scripts_data.remove(script_data)
+                    continue
+
+            # For multi-folder repos, check whether any expected subfolders were deleted
+            if github_handler.is_multi_folder_repo(script_data.get('repo_url', '')):
+                missing_count = ScriptUpdaterApp.check_missing_multi_subfolders(script_data)
+                if missing_count > 0:
+                    noun = 'folder' if missing_count == 1 else 'folders'
+                    script_data['status'] = f'{missing_count} {noun} missing — update to restore'
+                    script_data['update_status_indicator'] = 'folders_missing'
+                    script_data['current_version_sha'] = ''  # forces re-download on next Update click
+                    continue
 
             try:
                 latest_remote_sha = github_handler.get_latest_commit_sha(script_data.get('repo_url'))
@@ -1187,6 +1233,19 @@ class ScriptUpdaterApp(ctk.CTk):
             return False
 
         return os.path.isdir(local_path)
+
+    @staticmethod
+    def check_missing_multi_subfolders(script_data):
+        """Returns count of expected subfolders missing from disk for a multi-folder repo.
+        Returns 0 if no manifest is stored yet (undetectable on first run)."""
+        local_path = script_data.get('local_path', '')
+        expected = set(script_data.get('subfolders', []))
+        if not expected:
+            return 0
+        if not os.path.isdir(local_path):
+            return len(expected)
+        actual = set(os.listdir(local_path))
+        return len(expected - actual)
 
     def populate_community_script_tabs(self):
         # Clear existing widgets from all tab frames and reset shared vars

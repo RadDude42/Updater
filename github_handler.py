@@ -14,6 +14,80 @@ from packaging.version import parse as parse_version
 
 logger = get_logger(__name__)
 
+# Repos that contain multiple independent script folders at their root.
+# On download, every root subdir (except "Older Versions") is renamed to prefix+name.
+# Rename is idempotent: folders already starting with the prefix are skipped.
+# These repos always use overwrite updates — differential can't reconcile renamed subdirs.
+_MULTI_FOLDER_REPOS = {
+    "zewx1776/war-pig-zewx": "WarPig_",
+    "oldonsteroid/d4qqt": "D4QQT_",
+}
+
+def _get_multi_folder_prefix(repo_url):
+    normalized = repo_url.lower().replace('.git', '').rstrip('/')
+    for slug, prefix in _MULTI_FOLDER_REPOS.items():
+        if slug in normalized:
+            return prefix
+    return None
+
+def is_multi_folder_repo(repo_url):
+    return _get_multi_folder_prefix(repo_url) is not None
+
+def get_multi_folder_prefix(repo_url):
+    return _get_multi_folder_prefix(repo_url)
+
+def _extract_multi_folder_repo(zf, search_prefix_in_zip, local_save_path, prefix):
+    """Extract a multi-folder repo's subdirs individually into local_save_path.
+
+    Each top-level subdir in the zip is renamed with `prefix` and extracted to
+    local_save_path/<prefix>subdir_name/. Existing target dirs are wiped first.
+    Top-level files land in local_save_path directly. Never wipes local_save_path itself.
+    """
+    os.makedirs(local_save_path, exist_ok=True)
+    extracted_count = 0
+
+    top_level_dirs = {}   # {dir_name: [(item_name, rel_within_dir), ...]}
+    top_level_files = []  # [(item_name, filename)]
+
+    for item_name in zf.namelist():
+        if not item_name.startswith(search_prefix_in_zip):
+            continue
+        relative = item_name[len(search_prefix_in_zip):]
+        if not relative or item_name.endswith('/'):
+            continue
+        parts = relative.split('/')
+        if len(parts) == 1:
+            top_level_files.append((item_name, parts[0]))
+        else:
+            dir_name = parts[0]
+            top_level_dirs.setdefault(dir_name, []).append((item_name, '/'.join(parts[1:])))
+
+    for dir_name, files in top_level_dirs.items():
+        target_name = dir_name if dir_name.lower().startswith(prefix.lower()) else prefix + dir_name
+        target_path = os.path.join(local_save_path, target_name)
+        if os.path.exists(target_path):
+            shutil.rmtree(target_path)
+        os.makedirs(target_path)
+        for item_name, rel_within in files:
+            local_file = os.path.join(target_path, rel_within.replace('/', os.sep))
+            parent = os.path.dirname(local_file)
+            if parent and not os.path.exists(parent):
+                os.makedirs(parent)
+            with open(local_file, 'wb') as f:
+                f.write(zf.read(item_name))
+            extracted_count += 1
+        logger.debug(f"Multi-folder extracted: '{dir_name}' -> '{target_name}'")
+
+    _MF_SKIP_FILES = {'.gitignore', '.gitattributes'}
+    for item_name, filename in top_level_files:
+        if filename.lower().startswith('readme') or filename in _MF_SKIP_FILES:
+            continue
+        with open(os.path.join(local_save_path, filename), 'wb') as f:
+            f.write(zf.read(item_name))
+        extracted_count += 1
+
+    return extracted_count
+
 def check_for_app_update(current_version):
     """Checks for a new application release on GitHub.
     Returns (latest_version, download_url, release_notes, status) where status is one of:
@@ -458,94 +532,100 @@ def download_folder_from_github(repo_url, folder_path, local_save_path, branch=N
 
         zip_content = BytesIO(zip_response.content)
         extracted_count = 0
-        final_actual_path = local_save_path # Initialize with the original save path
+        final_actual_path = local_save_path
+        mf_prefix = _get_multi_folder_prefix(repo_url)
 
         with ZipFile(zip_content) as zf:
             if not zf.namelist():
                 return False, "Downloaded zip file is empty.", final_actual_path
-            
+
             repo_root_dir_in_zip = zf.namelist()[0].split('/')[0] + '/'
-            
+
             normalized_folder_path_for_zip = folder_path.strip('/').replace(os.sep, '/')
             if normalized_folder_path_for_zip:
                 search_prefix_in_zip = repo_root_dir_in_zip + normalized_folder_path_for_zip + '/'
             else:
                 search_prefix_in_zip = repo_root_dir_in_zip
 
-            files_to_extract_from_zip = []
-            for item_name in zf.namelist():
-                if item_name.startswith(search_prefix_in_zip) and not item_name.endswith('/'): 
-                    files_to_extract_from_zip.append(item_name)
-            
-            if not files_to_extract_from_zip:
-                folder_exists_as_prefix_in_zip = any(name.startswith(search_prefix_in_zip) for name in zf.namelist())
-                if folder_exists_as_prefix_in_zip:
-                    if os.path.exists(local_save_path):
-                        shutil.rmtree(local_save_path)
-                    os.makedirs(local_save_path, exist_ok=True)
-                    return True, f"Folder '{folder_path if folder_path else 'root'}' downloaded successfully. It is empty or contains only subdirectories.", final_actual_path
-                else:
-                    return False, f"Folder '{folder_path if folder_path else 'root'}' not found in the repository archive (searched for prefix '{search_prefix_in_zip}').", final_actual_path
+            if mf_prefix is not None:
+                # Multi-folder repo: extract each subdir individually without wiping local_save_path
+                extracted_count = _extract_multi_folder_repo(zf, search_prefix_in_zip, local_save_path, mf_prefix)
+            else:
+                files_to_extract_from_zip = []
+                for item_name in zf.namelist():
+                    if item_name.startswith(search_prefix_in_zip) and not item_name.endswith('/'):
+                        files_to_extract_from_zip.append(item_name)
 
-            # Preserve "Older Versions" folder if it exists
-            older_versions_backup = None
-            older_versions_path = os.path.join(local_save_path, "Older Versions")
-            if os.path.exists(older_versions_path):
-                older_versions_backup = tempfile.mkdtemp()
-                shutil.copytree(older_versions_path, os.path.join(older_versions_backup, "Older Versions"))
-                logger.debug(f"Backed up Older Versions to: {older_versions_backup}")
-            
-            if os.path.exists(local_save_path):
-                shutil.rmtree(local_save_path)
-            logger.debug(f"Creating directory for main extraction: {local_save_path}")
-            os.makedirs(local_save_path, exist_ok=True)
-            
-            # Restore "Older Versions" folder if it was backed up
-            if older_versions_backup and os.path.exists(os.path.join(older_versions_backup, "Older Versions")):
-                shutil.copytree(os.path.join(older_versions_backup, "Older Versions"), older_versions_path)
-                shutil.rmtree(older_versions_backup)  # Clean up temp directory
-                logger.debug(f"Restored Older Versions folder")
+                if not files_to_extract_from_zip:
+                    folder_exists_as_prefix_in_zip = any(name.startswith(search_prefix_in_zip) for name in zf.namelist())
+                    if folder_exists_as_prefix_in_zip:
+                        if os.path.exists(local_save_path):
+                            shutil.rmtree(local_save_path)
+                        os.makedirs(local_save_path, exist_ok=True)
+                        return True, f"Folder '{folder_path if folder_path else 'root'}' downloaded successfully. It is empty or contains only subdirectories.", final_actual_path
+                    else:
+                        return False, f"Folder '{folder_path if folder_path else 'root'}' not found in the repository archive (searched for prefix '{search_prefix_in_zip}').", final_actual_path
 
-            for file_path_in_zip in files_to_extract_from_zip:
-                relative_path = file_path_in_zip[len(search_prefix_in_zip):]
-                local_file_path = os.path.join(local_save_path, relative_path)
-                
-                parent_dir = os.path.dirname(local_file_path)
-                if parent_dir and not os.path.exists(parent_dir):
-                    os.makedirs(parent_dir)
-                
-                with open(local_file_path, 'wb') as f_out:
-                    f_out.write(zf.read(file_path_in_zip))
-                extracted_count += 1
-        
+                # Preserve "Older Versions" folder if it exists
+                older_versions_backup = None
+                older_versions_path = os.path.join(local_save_path, "Older Versions")
+                if os.path.exists(older_versions_path):
+                    older_versions_backup = tempfile.mkdtemp()
+                    shutil.copytree(older_versions_path, os.path.join(older_versions_backup, "Older Versions"))
+                    logger.debug(f"Backed up Older Versions to: {older_versions_backup}")
+
+                if os.path.exists(local_save_path):
+                    shutil.rmtree(local_save_path)
+                logger.debug(f"Creating directory for main extraction: {local_save_path}")
+                os.makedirs(local_save_path, exist_ok=True)
+
+                # Restore "Older Versions" folder if it was backed up
+                if older_versions_backup and os.path.exists(os.path.join(older_versions_backup, "Older Versions")):
+                    shutil.copytree(os.path.join(older_versions_backup, "Older Versions"), older_versions_path)
+                    shutil.rmtree(older_versions_backup)
+                    logger.debug(f"Restored Older Versions folder")
+
+                for file_path_in_zip in files_to_extract_from_zip:
+                    relative_path = file_path_in_zip[len(search_prefix_in_zip):]
+                    local_file_path = os.path.join(local_save_path, relative_path)
+
+                    parent_dir = os.path.dirname(local_file_path)
+                    if parent_dir and not os.path.exists(parent_dir):
+                        os.makedirs(parent_dir)
+
+                    with open(local_file_path, 'wb') as f_out:
+                        f_out.write(zf.read(file_path_in_zip))
+                    extracted_count += 1
+
         if extracted_count > 0:
-            # --- Lua Script Restructuring Logic ---
-            if not os.path.exists(os.path.join(local_save_path, "main.lua")):
-                logger.debug(f"Restructure: main.lua not found in root of {local_save_path}. Checking subdirectories.")
-                items_in_root = os.listdir(local_save_path)
-                subdirs = [item for item in items_in_root if os.path.isdir(os.path.join(local_save_path, item))]
-                
-                if len(subdirs) == 1:
-                    single_subdir_name = subdirs[0]
-                    single_subdir_path = os.path.join(local_save_path, single_subdir_name)
-                    if os.path.exists(os.path.join(single_subdir_path, "main.lua")):
-                        logger.debug(f"Restructure: Found main.lua in single subdirectory '{single_subdir_name}'. Restructuring.")
-                        temp_restructure_dir = local_save_path + "_temp_restructure_dir"
-                        if os.path.exists(temp_restructure_dir):
-                            shutil.rmtree(temp_restructure_dir)
-                        os.makedirs(temp_restructure_dir)
+            if mf_prefix is None:
+                # --- Lua Script Restructuring Logic ---
+                if not os.path.exists(os.path.join(local_save_path, "main.lua")):
+                    logger.debug(f"Restructure: main.lua not found in root of {local_save_path}. Checking subdirectories.")
+                    items_in_root = os.listdir(local_save_path)
+                    subdirs = [item for item in items_in_root if os.path.isdir(os.path.join(local_save_path, item))]
 
-                        for item in os.listdir(single_subdir_path):
-                            shutil.move(os.path.join(single_subdir_path, item), os.path.join(temp_restructure_dir, item))
-                        
-                        shutil.rmtree(single_subdir_path) 
-                        
-                        for item in os.listdir(temp_restructure_dir):
-                            shutil.move(os.path.join(temp_restructure_dir, item), os.path.join(local_save_path, item))
-                        
-                        shutil.rmtree(temp_restructure_dir) 
-                        logger.debug(f"Restructure: Successfully moved contents from '{single_subdir_name}' to '{local_save_path}'.")
-            # --- End of Lua Script Restructuring Logic ---
+                    if len(subdirs) == 1:
+                        single_subdir_name = subdirs[0]
+                        single_subdir_path = os.path.join(local_save_path, single_subdir_name)
+                        if os.path.exists(os.path.join(single_subdir_path, "main.lua")):
+                            logger.debug(f"Restructure: Found main.lua in single subdirectory '{single_subdir_name}'. Restructuring.")
+                            temp_restructure_dir = local_save_path + "_temp_restructure_dir"
+                            if os.path.exists(temp_restructure_dir):
+                                shutil.rmtree(temp_restructure_dir)
+                            os.makedirs(temp_restructure_dir)
+
+                            for item in os.listdir(single_subdir_path):
+                                shutil.move(os.path.join(single_subdir_path, item), os.path.join(temp_restructure_dir, item))
+
+                            shutil.rmtree(single_subdir_path)
+
+                            for item in os.listdir(temp_restructure_dir):
+                                shutil.move(os.path.join(temp_restructure_dir, item), os.path.join(local_save_path, item))
+
+                            shutil.rmtree(temp_restructure_dir)
+                            logger.debug(f"Restructure: Successfully moved contents from '{single_subdir_name}' to '{local_save_path}'.")
+                # --- End of Lua Script Restructuring Logic ---
             return True, f"Folder '{folder_path if folder_path else 'root'}' downloaded successfully. Extracted {extracted_count} files.", final_actual_path
         else:
             return False, f"Folder '{folder_path if folder_path else 'root'}' was processed, but no files were ultimately extracted.", final_actual_path
@@ -907,8 +987,10 @@ def perform_update(repo_url, folder_path, local_save_path, category, branch=None
     """
     try:
         update_method = config_manager.get_update_method()
+        if _get_multi_folder_prefix(repo_url) is not None:
+            update_method = 'overwrite'  # differential can't reconcile renamed subdirs
         logger.info(f"Using update method: {update_method}")
-        
+
         if update_method == 'differential':
             return differential_update_from_github(repo_url, folder_path, local_save_path, branch)
         else:
