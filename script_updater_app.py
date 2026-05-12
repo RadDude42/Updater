@@ -6,7 +6,6 @@ import os
 import queue
 import webbrowser
 import shutil
-import subprocess
 
 # Helper function for PyInstaller
 def resource_path(relative_path):
@@ -28,7 +27,7 @@ from logger_setup import setup_logger, get_logger
 
 logger = get_logger(__name__)
 
-APP_VERSION = "2.1.1"
+APP_VERSION = "2.2.0"
 
 ctk.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
 ctk.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
@@ -140,20 +139,15 @@ class AppUpdateDialog(ctk.CTkToplevel):
             with open(updater_script_path, 'w') as f:
                 f.write(
                     f'@echo off\n'
-                    f'echo Updating Script Updater...\n'
                     f'timeout /t 2 /nobreak > nul\n'
                     f'if exist "{old_exe_path}" del "{old_exe_path}"\n'
                     f'move /Y "{current_exe_path}" "{old_exe_path}"\n'
                     f'move /Y "{self._new_exe_path}" "{current_exe_path}"\n'
-                    f'start "" "{current_exe_path}"\n'
+                    f'if exist "{old_exe_path}" del "{old_exe_path}"\n'
                     f'del "%~f0"\n'
                 )
 
-            subprocess.Popen(
-                updater_script_path,
-                creationflags=subprocess.DETACHED_PROCESS,
-                shell=True,
-            )
+            os.startfile(updater_script_path)
             self._parent.destroy()
         except Exception as e:
             logger.error(f"Failed to apply update: {e}")
